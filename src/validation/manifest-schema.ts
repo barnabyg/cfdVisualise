@@ -1,4 +1,9 @@
-import { FLOW_REGIMES, type ValidationManifest } from "./types.js";
+import { createSchemaPrimitives, relativeDifference } from "./schema-primitives.js";
+import {
+  FLOW_REGIMES,
+  VALIDATION_SCHEMA_VERSION,
+  type ValidationManifest,
+} from "./types.js";
 
 export class ValidationManifestSchemaError extends Error {
   public constructor(message: string) {
@@ -7,9 +12,20 @@ export class ValidationManifestSchemaError extends Error {
   }
 }
 
+const {
+  array,
+  finite,
+  nonNegative,
+  oneOf,
+  positive,
+  record,
+  schemaVersion,
+  text,
+} = createSchemaPrimitives((message) => new ValidationManifestSchemaError(message));
+
 export function parseValidationManifest(input: unknown): ValidationManifest {
   const manifest = record(input, "Validation manifest");
-  if (manifest.schemaVersion !== "1") {
+  if (manifest.schemaVersion !== VALIDATION_SCHEMA_VERSION) {
     throw new ValidationManifestSchemaError(
       `Unsupported validation manifest schema version: ${String(manifest.schemaVersion)}.`,
     );
@@ -57,8 +73,10 @@ export function serializeValidationManifest(input: unknown): string {
 function validateSuite(value: unknown): void {
   const suite = record(value, "Validation suite identity");
   text(suite.id, "Validation suite id");
-  if (suite.schemaVersion !== "1") {
-    throw new ValidationManifestSchemaError("Validation suite schema version must be 1.");
+  if (suite.schemaVersion !== VALIDATION_SCHEMA_VERSION) {
+    throw new ValidationManifestSchemaError(
+      `Validation suite schema version must be ${VALIDATION_SCHEMA_VERSION}.`,
+    );
   }
   const versions = record(suite.metricVersions, "Metric versions");
   for (const [metric, version] of Object.entries(versions)) {
@@ -449,60 +467,10 @@ function validateRegime(value: unknown, location: string): void {
   );
 }
 
-function record(value: unknown, location: string): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new ValidationManifestSchemaError(`${location} must be an object.`);
-  }
-  return value as Record<string, unknown>;
-}
-
-function schemaVersion(value: unknown, location: string): void {
-  if (value !== "1") {
-    throw new ValidationManifestSchemaError(`${location} schema version must be 1.`);
-  }
-}
-
-function array(value: unknown, location: string): unknown[] {
-  if (!Array.isArray(value)) {
-    throw new ValidationManifestSchemaError(`${location} must be an array.`);
-  }
-  return value;
-}
-
 function strings(value: unknown, location: string): void {
   for (const item of array(value, location)) {
     text(item, `${location} item`);
   }
-}
-
-function text(value: unknown, location: string): string {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new ValidationManifestSchemaError(`${location} must be a non-empty string.`);
-  }
-  return value;
-}
-
-function finite(value: unknown, location: string): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new ValidationManifestSchemaError(`${location} must be finite.`);
-  }
-  return value;
-}
-
-function positive(value: unknown, location: string): number {
-  const result = finite(value, location);
-  if (result <= 0) {
-    throw new ValidationManifestSchemaError(`${location} must be positive.`);
-  }
-  return result;
-}
-
-function nonNegative(value: unknown, location: string): number {
-  const result = finite(value, location);
-  if (result < 0) {
-    throw new ValidationManifestSchemaError(`${location} must not be negative.`);
-  }
-  return result;
 }
 
 function validateRange(value: unknown, location: string): void {
@@ -511,18 +479,6 @@ function validateRange(value: unknown, location: string): void {
   const maximum = finite(range.maximum, `${location} maximum`);
   if (minimum > maximum) {
     throw new ValidationManifestSchemaError(`${location} is inverted.`);
-  }
-}
-
-function relativeDifference(left: number, right: number): number {
-  return Math.abs(left - right) / Math.max(Math.abs(left), Math.abs(right), Number.EPSILON);
-}
-
-function oneOf(value: unknown, choices: readonly string[], location: string): void {
-  if (typeof value !== "string" || !choices.includes(value)) {
-    throw new ValidationManifestSchemaError(
-      `${location} must be one of ${choices.join(", ")}.`,
-    );
   }
 }
 

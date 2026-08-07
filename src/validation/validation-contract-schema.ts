@@ -1,5 +1,7 @@
+import { createSchemaPrimitives, relativeDifference } from "./schema-primitives.js";
 import {
   FLOW_REGIMES,
+  VALIDATION_SCHEMA_VERSION,
   type BackendIdentity,
   type SolverBackend,
   type ValidationSuite,
@@ -21,6 +23,17 @@ export class ValidationContractSchemaError extends Error {
     this.name = "ValidationContractSchemaError";
   }
 }
+
+const {
+  array,
+  finite,
+  nonNegative,
+  oneOf: choice,
+  positive,
+  record,
+  text,
+  versionedRecord,
+} = createSchemaPrimitives((message) => new ValidationContractSchemaError(message));
 
 export function parseValidationSuite(input: unknown): ValidationSuite {
   const suite = versionedRecord(input, "Validation suite");
@@ -49,9 +62,9 @@ export function parseSolverBackend(input: unknown): SolverBackend {
 function validateCaseDefinition(value: unknown, index: number): void {
   const location = `Validation case ${index}`;
   const definition = record(value, location);
-  if (definition.schemaVersion !== "1") {
+  if (definition.schemaVersion !== VALIDATION_SCHEMA_VERSION) {
     throw new ValidationContractSchemaError(
-      `Validation case schema version at index ${index} must be 1.`,
+      `Validation case schema version at index ${index} must be ${VALIDATION_SCHEMA_VERSION}.`,
     );
   }
   text(definition.id, `${location} id`);
@@ -218,68 +231,4 @@ function validateRange(value: unknown, location: string): void {
   if (minimum > maximum) {
     throw new ValidationContractSchemaError(`${location} minimum cannot exceed maximum.`);
   }
-}
-
-function versionedRecord(value: unknown, location: string): Record<string, unknown> {
-  const result = record(value, location);
-  if (result.schemaVersion !== "1") {
-    throw new ValidationContractSchemaError(`${location} schema version must be 1.`);
-  }
-  return result;
-}
-
-function record(value: unknown, location: string): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new ValidationContractSchemaError(`${location} must be an object.`);
-  }
-  return value as Record<string, unknown>;
-}
-
-function array(value: unknown, location: string): unknown[] {
-  if (!Array.isArray(value)) {
-    throw new ValidationContractSchemaError(`${location} must be an array.`);
-  }
-  return value;
-}
-
-function text(value: unknown, location: string): string {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new ValidationContractSchemaError(`${location} must be non-empty text.`);
-  }
-  return value;
-}
-
-function finite(value: unknown, location: string): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new ValidationContractSchemaError(`${location} must be a finite number.`);
-  }
-  return value;
-}
-
-function positive(value: unknown, location: string): number {
-  const result = finite(value, location);
-  if (result <= 0) {
-    throw new ValidationContractSchemaError(`${location} must be positive.`);
-  }
-  return result;
-}
-
-function nonNegative(value: unknown, location: string): number {
-  const result = finite(value, location);
-  if (result < 0) {
-    throw new ValidationContractSchemaError(`${location} must be non-negative.`);
-  }
-  return result;
-}
-
-function choice(value: unknown, choices: readonly string[], location: string): void {
-  if (typeof value !== "string" || !choices.includes(value)) {
-    throw new ValidationContractSchemaError(
-      `${location} is incompatible; expected one of ${choices.join(", ")}.`,
-    );
-  }
-}
-
-function relativeDifference(left: number, right: number): number {
-  return Math.abs(left - right) / Math.max(Math.abs(left), Math.abs(right), Number.EPSILON);
 }

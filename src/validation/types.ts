@@ -7,11 +7,13 @@ export const FLOW_REGIMES = [
   "unclassified",
 ] as const;
 
+export const VALIDATION_SCHEMA_VERSION = "1" as const;
+
 export type FlowRegime = (typeof FLOW_REGIMES)[number];
 
 export type ResultAvailability = "available" | "unavailable";
 
-export type ContractSchemaVersion = "1";
+export type ContractSchemaVersion = typeof VALIDATION_SCHEMA_VERSION;
 
 export interface InclusiveRange {
   readonly minimum: number;
@@ -127,7 +129,7 @@ export interface ReconciliationDefinition {
 }
 
 export interface ValidationSuite {
-  readonly schemaVersion: "1";
+  readonly schemaVersion: ContractSchemaVersion;
   readonly id: string;
   readonly metricVersions: Readonly<Record<string, string>>;
   readonly cases: readonly ValidationCaseDefinition[];
@@ -239,10 +241,10 @@ export interface ReconciliationManifest {
 }
 
 export interface ValidationManifest {
-  readonly schemaVersion: "1";
+  readonly schemaVersion: ContractSchemaVersion;
   readonly suite: {
     readonly id: string;
-    readonly schemaVersion: "1";
+    readonly schemaVersion: ContractSchemaVersion;
     readonly metricVersions: Readonly<Record<string, string>>;
   };
   readonly backend: BackendIdentity;

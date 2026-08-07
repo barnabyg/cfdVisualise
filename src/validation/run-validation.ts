@@ -1,17 +1,18 @@
-import type {
-  CaseManifest,
-  FlowRegime,
-  InclusiveRange,
-  MetricEvidence,
-  MetricExpectation,
-  ObservableMetric,
-  ReconciliationDefinition,
-  ReconciliationManifest,
-  SolverBackend,
-  ValidationCaseDefinition,
-  ValidationManifest,
-  ValidationSample,
-  ValidationSuite,
+import {
+  VALIDATION_SCHEMA_VERSION,
+  type CaseManifest,
+  type FlowRegime,
+  type InclusiveRange,
+  type MetricEvidence,
+  type MetricExpectation,
+  type ObservableMetric,
+  type ReconciliationDefinition,
+  type ReconciliationManifest,
+  type SolverBackend,
+  type ValidationCaseDefinition,
+  type ValidationManifest,
+  type ValidationSample,
+  type ValidationSuite,
 } from "./types.js";
 import { analyseLiftSignal, reconcileDomainMass } from "./metrics.js";
 import { parseSolverBackend, parseValidationSuite } from "./validation-contract-schema.js";
@@ -32,7 +33,7 @@ export async function runValidation(
   );
 
   return {
-    schemaVersion: "1",
+    schemaVersion: VALIDATION_SCHEMA_VERSION,
     suite: {
       id: suite.id,
       schemaVersion: suite.schemaVersion,
@@ -140,7 +141,7 @@ function reconcile(
   }
 
   return {
-    schemaVersion: "1",
+    schemaVersion: VALIDATION_SCHEMA_VERSION,
     id: definition.id,
     kind: definition.kind,
     baselineCaseId: definition.baselineCaseId,
@@ -216,7 +217,7 @@ async function runCase(
   }
 
   return {
-    schemaVersion: "1",
+    schemaVersion: VALIDATION_SCHEMA_VERSION,
     caseId: definition.id,
     reynoldsNumber: definition.reynoldsNumber,
     configuration: definition.configuration,
@@ -370,7 +371,7 @@ function calculateMetrics(
   }
   if (evidence.strouhalNumber === undefined && measured.strouhalNumber === undefined) {
     evidence.strouhalNumber = {
-      schemaVersion: "1",
+      schemaVersion: VALIDATION_SCHEMA_VERSION,
       applicability: "inapplicable",
       status: "not-assessed",
       message: "Strouhal number is inapplicable without a stable periodic lift signal.",
@@ -386,7 +387,7 @@ function expectationEvidence(
 ): MetricEvidence {
   if (measured === undefined) {
     return {
-      schemaVersion: "1",
+      schemaVersion: VALIDATION_SCHEMA_VERSION,
       applicability: "applicable",
       status: "fail",
       expected: expectation.range,
@@ -398,7 +399,7 @@ function expectationEvidence(
   const accepted = expand(expectation.range, expectation.tolerance);
   const status = inRange(measured, accepted) ? "pass" : "fail";
   return {
-    schemaVersion: "1",
+    schemaVersion: VALIDATION_SCHEMA_VERSION,
     applicability: "applicable",
     measured,
     expected: expectation.range,
