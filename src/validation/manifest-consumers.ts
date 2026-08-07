@@ -92,15 +92,6 @@ export function createMethodAndValidationModel(
       reason: `Validation evidence does not match active backend ${active.backendId}, tier ${active.qualityTier}, and build ${active.buildId}.`,
     };
   }
-  const incompleteReason = releaseEvidenceProblem(activeCases, manifest.reconciliations);
-  if (incompleteReason !== undefined) {
-    return {
-      status: "unavailable",
-      evidenceState: "failing",
-      reason: `Validation evidence is incomplete: ${incompleteReason}`,
-    };
-  }
-
   return {
     status: "validated",
     evidenceState: "passing",
@@ -334,10 +325,25 @@ function findComparisonCases(
 
 export function evaluateReleaseGate(input: ReleaseGateInput): ReleaseGateResult {
   const validationModel = createMethodAndValidationModel(input.manifest, input.active);
-  const validation =
-    validationModel.status === "validated"
-      ? ({ status: "pass" } as const)
-      : ({ status: "fail", reason: validationModel.reason } as const);
+  let validation: ReleaseGateResult["validation"];
+  if (validationModel.status === "unavailable") {
+    validation = { status: "fail", reason: validationModel.reason };
+  } else {
+    const manifest = parseValidationManifest(input.manifest);
+    const activeCases = manifest.cases.filter(
+      (result) =>
+        result.configuration.backendId === input.active.backendId &&
+        result.configuration.qualityTier === input.active.qualityTier,
+    );
+    const incompleteReason = releaseEvidenceProblem(activeCases, manifest.reconciliations);
+    validation =
+      incompleteReason === undefined
+        ? { status: "pass" }
+        : {
+            status: "fail",
+            reason: `Validation evidence is incomplete: ${incompleteReason}`,
+          };
+  }
   const performanceStatus =
     Number.isFinite(input.guideDurationSeconds) &&
     Number.isFinite(input.maximumGuideDurationSeconds) &&

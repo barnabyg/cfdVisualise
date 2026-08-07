@@ -76,20 +76,29 @@ describe("validation manifest consumers", () => {
     });
   });
 
-  it("does not treat a partial reference suite as validated release evidence", () => {
+  it("shows a passing synthetic manifest while keeping release completeness separate", () => {
     const complete = validManifest();
+    const partial = { ...complete, cases: [complete.cases[0]], reconciliations: [] };
+    const active = {
+      backendId: "cpu-reference",
+      qualityTier: "reference",
+      buildId: "build-1",
+    };
+
+    expect(createMethodAndValidationModel(partial, active)).toMatchObject({
+      status: "validated",
+      evidenceState: "passing",
+    });
     expect(
-      createMethodAndValidationModel(
-        { ...complete, cases: [complete.cases[0]], reconciliations: [] },
-        {
-          backendId: "cpu-reference",
-          qualityTier: "reference",
-          buildId: "build-1",
-        },
-      ),
+      evaluateReleaseGate({
+        manifest: partial,
+        active,
+        guideDurationSeconds: 80,
+        maximumGuideDurationSeconds: 90,
+      }),
     ).toMatchObject({
-      status: "unavailable",
-      reason: expect.stringContaining("Re=20"),
+      status: "fail",
+      validation: { status: "fail", reason: expect.stringContaining("Re=20") },
     });
   });
 

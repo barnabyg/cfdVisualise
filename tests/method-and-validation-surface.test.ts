@@ -7,12 +7,36 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   MethodAndValidation,
   MethodAndValidationSurface,
+  runValidation,
   type MethodAndValidationModel,
 } from "../src/validation/index.js";
+import {
+  syntheticBackend,
+  syntheticValidationSuite,
+} from "./fixtures/synthetic-validation.js";
 
 afterEach(cleanup);
 
 describe("Method and validation surface", () => {
+  it("renders a synthetic runner manifest as passing evidence", async () => {
+    const manifest = await runValidation(syntheticValidationSuite(), syntheticBackend());
+
+    render(
+      h(MethodAndValidation, {
+        manifest,
+        active: {
+          backendId: "cpu-test",
+          qualityTier: "reference",
+          buildId: "build-1",
+        },
+      }),
+    );
+
+    const surface = screen.getByRole("region", { name: "Method and validation" });
+    expect(surface.getAttribute("data-evidence-state")).toBe("passing");
+    expect(screen.getByText("Synthetic TRT/BFL 1.0.0")).toBeTruthy();
+  });
+
   it("derives missing evidence from the manifest boundary", () => {
     render(
       h(MethodAndValidation, {
