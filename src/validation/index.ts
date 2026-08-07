@@ -1,0 +1,26 @@
+export { runValidation } from "./run-validation.js";
+export { reconcileBackendManifests } from "./backend-parity.js";
+export type * from "./backend-parity.js";
+export {
+  parseValidationManifest,
+  serializeValidationManifest,
+  ValidationManifestSchemaError,
+} from "./manifest-schema.js";
+export {
+  analyseLiftSignal,
+  measureCentrelineSymmetry,
+  measureRecirculationLength,
+  reconcileDomainMass,
+} from "./metrics.js";
+export {
+  createMethodAndValidationModel,
+  evaluateReleaseGate,
+} from "./manifest-consumers.js";
+export {
+  createReferenceValidationSuite,
+  REFERENCE_CASE_CATALOGUE,
+} from "./reference-catalogue.js";
+export type * from "./reference-catalogue.js";
+export type * from "./manifest-consumers.js";
+export type * from "./metrics.js";
+export type * from "./types.js";

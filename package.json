@@ -1,0 +1,16 @@
+{
+  "name": "cfd-visualise",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "verify": "npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "typescript": "5.9.2",
+    "vitest": "^3.2.7"
+  }
+}
