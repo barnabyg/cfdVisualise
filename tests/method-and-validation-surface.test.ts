@@ -93,6 +93,30 @@ describe("Method and validation surface", () => {
     expect(screen.queryByText("Validation evidence passed")).toBeNull();
   });
 
+  it("rejects hand-claimed passing evidence with no applicable metric", async () => {
+    const manifest = await runValidation(syntheticValidationSuite(), syntheticBackend());
+    const caseResult = manifest.cases[0]!;
+
+    render(
+      h(MethodAndValidation, {
+        manifest: {
+          ...manifest,
+          cases: [{ ...caseResult, metrics: {} }],
+        },
+        active: {
+          backendId: "cpu-test",
+          qualityTier: "reference",
+          buildId: "build-1",
+        },
+      }),
+    );
+
+    const surface = screen.getByRole("region", { name: "Method and validation" });
+    expect(surface.getAttribute("data-evidence-state")).toBe("incompatible");
+    expect(screen.getByRole("status").textContent).toBe("Validation evidence unavailable");
+    expect(screen.queryByText("Validation evidence passed")).toBeNull();
+  });
+
   it("derives missing evidence from the manifest boundary", () => {
     render(
       h(MethodAndValidation, {

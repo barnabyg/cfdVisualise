@@ -62,7 +62,20 @@ describe("numerical health", () => {
             maximumPeriodicFrequencyVariation: 0.02,
             maximumPeriodicAmplitudeVariation: 0.05,
           },
-          expectations: [],
+          expectations: [
+            {
+              metric: "meanDragCoefficient",
+              range: { minimum: 0, maximum: 10 },
+              tolerance: 0,
+              sources: [
+                {
+                  id: "test-reference",
+                  url: "https://example.test/reference",
+                  convention: "test fixture",
+                },
+              ],
+            },
+          ],
         },
       ],
       reconciliations: [],

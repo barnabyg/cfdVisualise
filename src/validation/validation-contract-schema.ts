@@ -94,6 +94,11 @@ function validateCaseDefinition(value: unknown, index: number): void {
   validateClassification(definition.classification, location);
 
   const expectations = array(definition.expectations, `${location} expectations`);
+  if (expectations.length === 0) {
+    throw new ValidationContractSchemaError(
+      `${location} needs at least one scientific metric expectation.`,
+    );
+  }
   expectations.forEach((expectation, expectationIndex) => {
     const metric = record(expectation, `${location} expectation ${expectationIndex}`);
     choice(metric.metric, OBSERVABLE_METRICS, `${location} expectation metric`);

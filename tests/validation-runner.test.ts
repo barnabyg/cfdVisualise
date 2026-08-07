@@ -84,6 +84,7 @@ describe("validation runner", () => {
         configuration: { ...validCase.configuration, precision: "float16" },
       },
       { ...validCase, expectations: "none" },
+      { ...validCase, expectations: [] },
     ];
     for (const incompatibleCase of incompatibleCases) {
       await expect(

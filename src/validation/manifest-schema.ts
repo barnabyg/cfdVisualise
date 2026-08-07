@@ -123,16 +123,24 @@ function validateCase(value: unknown, index: number): void {
   for (const [metric, evidence] of Object.entries(metrics)) {
     validateMetric(evidence, `Case ${index} metric ${metric}`);
   }
+  const applicableMetrics = Object.values(metrics)
+    .map((value) => record(value, `Case ${index} metric evidence`))
+    .filter((metric) => metric.applicability === "applicable");
   strings(result.failures, `Case ${index} failures`);
   if (result.status === "pass" && array(result.failures, `Case ${index} failures`).length > 0) {
     throw new ValidationManifestSchemaError(`Passing case ${index} cannot contain failures.`);
   }
   if (
     result.status === "pass" &&
-    Object.values(metrics).some((value) => {
-      const metric = record(value, `Case ${index} metric evidence`);
-      return metric.applicability === "applicable" && metric.status !== "pass";
-    })
+    applicableMetrics.length === 0
+  ) {
+    throw new ValidationManifestSchemaError(
+      `Passing case ${index} needs at least one applicable scientific metric.`,
+    );
+  }
+  if (
+    result.status === "pass" &&
+    applicableMetrics.some((metric) => metric.status !== "pass")
   ) {
     throw new ValidationManifestSchemaError(
       `Passing case ${index} cannot contain failed or unassessed applicable metric evidence.`,
