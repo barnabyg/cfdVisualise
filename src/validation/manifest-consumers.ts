@@ -1,5 +1,10 @@
 import { parseValidationManifest } from "./manifest-schema.js";
-import type { ScientificSource } from "./types.js";
+import type {
+  BoundaryConfiguration,
+  FlowRegime,
+  MetricEvidence,
+  ScientificSource,
+} from "./types.js";
 
 export interface ActiveValidationIdentity {
   readonly backendId: string;
@@ -17,6 +22,14 @@ export type MethodAndValidationModel =
       readonly solver: string;
       readonly solverVersion: string;
       readonly buildId: string;
+      readonly modelScope: "Qualitative two-dimensional open-cylinder flow";
+      readonly boundaries: BoundaryConfiguration;
+      readonly referenceCases: readonly {
+        readonly caseId: string;
+        readonly reynoldsNumber: number;
+        readonly regime?: FlowRegime;
+        readonly metrics: Readonly<Record<string, MetricEvidence>>;
+      }[];
       readonly sources: readonly ScientificSource[];
     }
   | {
@@ -101,6 +114,14 @@ export function createMethodAndValidationModel(
     solver: manifest.backend.solver,
     solverVersion: manifest.backend.solverVersion,
     buildId: manifest.backend.buildId,
+    modelScope: "Qualitative two-dimensional open-cylinder flow",
+    boundaries: activeCases[0]!.configuration.boundaries,
+    referenceCases: activeCases.map((result) => ({
+      caseId: result.caseId,
+      reynoldsNumber: result.reynoldsNumber,
+      ...(result.regime === undefined ? {} : { regime: result.regime }),
+      metrics: result.metrics,
+    })),
     sources: collectSources(activeCases.flatMap((result) => Object.values(result.metrics))),
   };
 }

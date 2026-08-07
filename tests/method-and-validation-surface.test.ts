@@ -35,6 +35,18 @@ describe("Method and validation surface", () => {
     const surface = screen.getByRole("region", { name: "Method and validation" });
     expect(surface.getAttribute("data-evidence-state")).toBe("passing");
     expect(screen.getByText("Synthetic TRT/BFL 1.0.0")).toBeTruthy();
+    expect(screen.getByText("Qualitative two-dimensional open-cylinder flow")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "regularized-velocity / free-slip / fixed-density-nee / linear-bfl",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("Re=20 — steady")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "meanDragCoefficient: 2.1; expected [2, 2.2]; tolerance 0 — pass",
+      ),
+    ).toBeTruthy();
   });
 
   it("derives missing evidence from the manifest boundary", () => {
@@ -66,6 +78,14 @@ describe("Method and validation surface", () => {
           solver: "Synthetic TRT/BFL",
           solverVersion: "1.0.0",
           buildId: "build-1",
+          modelScope: "Qualitative two-dimensional open-cylinder flow",
+          boundaries: {
+            inlet: "regularized-velocity",
+            lateral: "free-slip",
+            outlet: "fixed-density-nee",
+            cylinder: "linear-bfl",
+          },
+          referenceCases: [],
           sources: [
             {
               id: "worked-reference",
