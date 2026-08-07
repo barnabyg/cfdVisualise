@@ -1,10 +1,16 @@
-export type FlowRegime =
-  | "developing"
-  | "adapting"
-  | "steady"
-  | "periodically-shedding"
-  | "unclassified"
-  | "unavailable";
+export const FLOW_REGIMES = [
+  "developing",
+  "adapting",
+  "steady",
+  "periodically-shedding",
+  "unclassified",
+] as const;
+
+export type FlowRegime = (typeof FLOW_REGIMES)[number];
+
+export type ResultAvailability = "available" | "unavailable";
+
+export type ContractSchemaVersion = "1";
 
 export interface InclusiveRange {
   readonly minimum: number;
@@ -94,6 +100,7 @@ export interface MetricExpectation {
 }
 
 export interface ValidationCaseDefinition {
+  readonly schemaVersion: ContractSchemaVersion;
   readonly id: string;
   readonly reynoldsNumber: number;
   readonly physicalScenario: PhysicalScenario;
@@ -107,6 +114,7 @@ export interface ValidationCaseDefinition {
 }
 
 export interface ReconciliationDefinition {
+  readonly schemaVersion: ContractSchemaVersion;
   readonly id: string;
   readonly kind: "grid" | "domain" | "cylinder-placement" | "boundary" | "backend";
   readonly baselineCaseId: string;
@@ -126,6 +134,7 @@ export interface ValidationSuite {
 }
 
 export interface BackendIdentity {
+  readonly schemaVersion: ContractSchemaVersion;
   readonly id: string;
   readonly kind: "cpu-worker" | "webgpu";
   readonly solver: string;
@@ -160,6 +169,7 @@ export interface SolverBackend {
 }
 
 export interface MetricEvidence {
+  readonly schemaVersion: ContractSchemaVersion;
   readonly applicability: "applicable" | "inapplicable";
   readonly measured?: number;
   readonly expected?: InclusiveRange;
@@ -170,10 +180,12 @@ export interface MetricEvidence {
 }
 
 export interface CaseManifest {
+  readonly schemaVersion: ContractSchemaVersion;
   readonly caseId: string;
   readonly reynoldsNumber: number;
   readonly configuration: NumericalConfiguration;
   readonly definition: {
+    readonly schemaVersion: ContractSchemaVersion;
     readonly physicalScenario: PhysicalScenario;
     readonly expectedRegimes: readonly FlowRegime[];
     readonly protocol: SamplingProtocol;
@@ -181,7 +193,8 @@ export interface CaseManifest {
     readonly classification: ClassificationThresholds;
   };
   readonly status: "pass" | "fail";
-  readonly regime: FlowRegime;
+  readonly availability: ResultAvailability;
+  readonly regime?: FlowRegime;
   readonly achieved: {
     readonly steps: number;
     readonly flowThroughTime: number;
@@ -193,6 +206,7 @@ export interface CaseManifest {
 }
 
 export interface ReconciliationManifest {
+  readonly schemaVersion: ContractSchemaVersion;
   readonly id: string;
   readonly kind: ReconciliationDefinition["kind"];
   readonly baselineCaseId: string;

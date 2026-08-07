@@ -114,6 +114,7 @@ export function reconcileBackendManifests(
   }
 
   return {
+    schemaVersion: "1",
     id: definition.id,
     kind: "backend",
     baselineCaseId: "matched-backend-cases",

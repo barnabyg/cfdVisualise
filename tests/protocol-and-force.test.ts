@@ -29,9 +29,10 @@ describe("validation protocol and steady force evidence", () => {
 
     expect(manifest.cases[0]).toMatchObject({
       status: "fail",
-      regime: "unavailable",
+      availability: "unavailable",
       achieved: { flowThroughTime: 0, steps: 0 },
     });
+    expect(manifest.cases[0]).not.toHaveProperty("regime");
     expect(manifest.cases[0]?.failures[0]).toContain("declared interval 1");
   });
 });
@@ -48,6 +49,7 @@ function suiteFor(expectedRegime: FlowRegime): ValidationSuite {
 
 function caseDefinition(expectedRegime: FlowRegime): ValidationCaseDefinition {
   return {
+    schemaVersion: "1",
     id: "steady-force-check",
     reynoldsNumber: 20,
     physicalScenario: {
@@ -98,6 +100,7 @@ function caseDefinition(expectedRegime: FlowRegime): ValidationCaseDefinition {
 function backendWithSamples(samples: readonly ReturnType<typeof sample>[]): SolverBackend {
   return {
     identity: {
+      schemaVersion: "1",
       id: "cpu-test",
       kind: "cpu-worker",
       solver: "test TRT/BFL",

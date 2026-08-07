@@ -14,11 +14,14 @@ import type {
   ValidationSuite,
 } from "./types.js";
 import { analyseLiftSignal, reconcileDomainMass } from "./metrics.js";
+import { parseSolverBackend, parseValidationSuite } from "./validation-contract-schema.js";
 
 export async function runValidation(
-  suite: ValidationSuite,
-  backend: SolverBackend,
+  suiteInput: ValidationSuite,
+  backendInput: SolverBackend,
 ): Promise<ValidationManifest> {
+  const suite = parseValidationSuite(suiteInput);
+  const backend = parseSolverBackend(backendInput);
   const cases: CaseManifest[] = [];
 
   for (const definition of suite.cases) {
@@ -80,7 +83,7 @@ function reconcile(
     if (baseline === undefined) {
       comparisons.push({
         comparisonCaseId: comparisonId,
-        comparisonRegime: comparison.regime,
+        ...(comparison.regime === undefined ? {} : { comparisonRegime: comparison.regime }),
         metrics: metricComparisons,
         status: "fail",
       });
@@ -129,14 +132,15 @@ function reconcile(
     failures.push(...comparisonFailures);
     comparisons.push({
       comparisonCaseId: comparison.caseId,
-      baselineRegime: baseline.regime,
-      comparisonRegime: comparison.regime,
+      ...(baseline.regime === undefined ? {} : { baselineRegime: baseline.regime }),
+      ...(comparison.regime === undefined ? {} : { comparisonRegime: comparison.regime }),
       metrics: metricComparisons,
       status: comparisonFailures.length === 0 ? "pass" : "fail",
     });
   }
 
   return {
+    schemaVersion: "1",
     id: definition.id,
     kind: definition.kind,
     baselineCaseId: definition.baselineCaseId,
@@ -196,9 +200,10 @@ async function runCase(
   const warmUpEnd = lastAtOrBefore(samples, definition.protocol.warmUpFlowThroughTime);
   const metrics = calculateMetrics(definition, warmUpEnd, sampleWindow, failures);
   const analysisWindow = warmUpEnd === undefined ? sampleWindow : [warmUpEnd, ...sampleWindow];
-  const regime = failures.length === 0 ? classify(definition, analysisWindow) : "unavailable";
+  const availability = failures.length === 0 ? "available" : "unavailable";
+  const regime = availability === "available" ? classify(definition, analysisWindow) : undefined;
 
-  if (failures.length === 0 && !definition.expectedRegimes.includes(regime)) {
+  if (regime !== undefined && !definition.expectedRegimes.includes(regime)) {
     failures.push(
       `Case ${definition.id} measured regime ${regime}; expected ${definition.expectedRegimes.join(" or ")}.`,
     );
@@ -211,10 +216,12 @@ async function runCase(
   }
 
   return {
+    schemaVersion: "1",
     caseId: definition.id,
     reynoldsNumber: definition.reynoldsNumber,
     configuration: definition.configuration,
     definition: {
+      schemaVersion: definition.schemaVersion,
       physicalScenario: definition.physicalScenario,
       expectedRegimes: definition.expectedRegimes,
       protocol: definition.protocol,
@@ -222,7 +229,8 @@ async function runCase(
       classification: definition.classification,
     },
     status: failures.length === 0 ? "pass" : "fail",
-    regime,
+    availability,
+    ...(regime === undefined ? {} : { regime }),
     achieved: {
       steps: lastSample?.step ?? 0,
       flowThroughTime: achievedFlowThroughTime,
@@ -354,10 +362,15 @@ function calculateMetrics(
 
   const evidence: Record<string, MetricEvidence> = {};
   for (const expectation of definition.expectations) {
-    evidence[expectation.metric] = expectationEvidence(expectation, measured[expectation.metric]);
+    evidence[expectation.metric] = expectationEvidence(
+      definition.id,
+      expectation,
+      measured[expectation.metric],
+    );
   }
   if (evidence.strouhalNumber === undefined && measured.strouhalNumber === undefined) {
     evidence.strouhalNumber = {
+      schemaVersion: "1",
       applicability: "inapplicable",
       status: "not-assessed",
       message: "Strouhal number is inapplicable without a stable periodic lift signal.",
@@ -367,22 +380,25 @@ function calculateMetrics(
 }
 
 function expectationEvidence(
+  caseId: string,
   expectation: MetricExpectation,
   measured: number | undefined,
 ): MetricEvidence {
   if (measured === undefined) {
     return {
+      schemaVersion: "1",
       applicability: "applicable",
       status: "fail",
       expected: expectation.range,
       tolerance: expectation.tolerance,
       sources: expectation.sources,
-      message: `${expectation.metric} was required but could not be measured.`,
+      message: `Case ${caseId}: ${expectation.metric} was required but could not be measured.`,
     };
   }
   const accepted = expand(expectation.range, expectation.tolerance);
   const status = inRange(measured, accepted) ? "pass" : "fail";
   return {
+    schemaVersion: "1",
     applicability: "applicable",
     measured,
     expected: expectation.range,
@@ -391,7 +407,7 @@ function expectationEvidence(
     status,
     ...(status === "fail"
       ? {
-          message: `${expectation.metric} measured ${measured}; expected [${expectation.range.minimum}, ${expectation.range.maximum}] with tolerance ${expectation.tolerance}.`,
+          message: `Case ${caseId}: ${expectation.metric} measured ${measured}; expected [${expectation.range.minimum}, ${expectation.range.maximum}] with tolerance ${expectation.tolerance}.`,
         }
       : {}),
   };

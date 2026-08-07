@@ -20,6 +20,7 @@ describe("cross-run reconciliation", () => {
       cases: [baseline, comparison],
       reconciliations: [
         {
+          schemaVersion: "1",
           id: "re20-grid",
           kind: "grid",
           baselineCaseId: baseline.id,
@@ -31,6 +32,7 @@ describe("cross-run reconciliation", () => {
     };
     const backend: SolverBackend = {
       identity: {
+        schemaVersion: "1",
         id: "cpu-test",
         kind: "cpu-worker",
         solver: "test TRT/BFL",
@@ -157,6 +159,7 @@ describe("cross-run reconciliation", () => {
 
 function steadyCase(id: string, cellsPerDiameter: number): ValidationCaseDefinition {
   return {
+    schemaVersion: "1",
     id,
     reynoldsNumber: 20,
     physicalScenario: {

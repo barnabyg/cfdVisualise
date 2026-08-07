@@ -1,4 +1,4 @@
-import type { ValidationManifest } from "./types.js";
+import { FLOW_REGIMES, type ValidationManifest } from "./types.js";
 
 export class ValidationManifestSchemaError extends Error {
   public constructor(message: string) {
@@ -69,6 +69,7 @@ function validateSuite(value: unknown): void {
 
 function validateBackend(value: unknown): void {
   const backend = record(value, "Backend identity");
+  schemaVersion(backend.schemaVersion, "Backend identity");
   text(backend.id, "Backend id");
   oneOf(backend.kind, ["cpu-worker", "webgpu"], "Backend kind");
   text(backend.solver, "Solver identity");
@@ -78,21 +79,18 @@ function validateBackend(value: unknown): void {
 
 function validateCase(value: unknown, index: number): void {
   const result = record(value, `Case ${index}`);
+  schemaVersion(result.schemaVersion, `Case ${index}`);
   text(result.caseId, `Case ${index} id`);
   const reynoldsNumber = finite(result.reynoldsNumber, `Case ${index} Reynolds number`);
   oneOf(result.status, ["pass", "fail"], `Case ${index} status`);
-  oneOf(
-    result.regime,
-    [
-      "developing",
-      "adapting",
-      "steady",
-      "periodically-shedding",
-      "unclassified",
-      "unavailable",
-    ],
-    `Case ${index} regime`,
-  );
+  oneOf(result.availability, ["available", "unavailable"], `Case ${index} availability`);
+  if (result.availability === "available") {
+    validateRegime(result.regime, `Case ${index} regime`);
+  } else if (result.regime !== undefined) {
+    throw new ValidationManifestSchemaError(
+      `Unavailable case ${index} cannot report a measured flow regime.`,
+    );
+  }
   validateConfiguration(result.configuration, index);
   validateDefinition(result.definition, reynoldsNumber, index);
   const achieved = record(result.achieved, `Case ${index} achieved protocol`);
@@ -112,6 +110,7 @@ function validateCase(value: unknown, index: number): void {
 
 function validateDefinition(value: unknown, reynoldsNumber: number, caseIndex: number): void {
   const definition = record(value, `Case ${caseIndex} definition`);
+  schemaVersion(definition.schemaVersion, `Case ${caseIndex} definition`);
   const scenario = record(
     definition.physicalScenario,
     `Case ${caseIndex} physical scenario`,
@@ -141,14 +140,7 @@ function validateDefinition(value: unknown, reynoldsNumber: number, caseIndex: n
   for (const regime of expectedRegimes) {
     oneOf(
       regime,
-      [
-        "developing",
-        "adapting",
-        "steady",
-        "periodically-shedding",
-        "unclassified",
-        "unavailable",
-      ],
+      FLOW_REGIMES,
       `Case ${caseIndex} expected regime`,
     );
   }
@@ -232,6 +224,7 @@ function validateConfiguration(value: unknown, caseIndex: number): void {
 
 function validateMetric(value: unknown, location: string): void {
   const metric = record(value, location);
+  schemaVersion(metric.schemaVersion, location);
   oneOf(metric.applicability, ["applicable", "inapplicable"], `${location} applicability`);
   oneOf(metric.status, ["pass", "fail", "not-assessed"], `${location} status`);
   if (metric.measured !== undefined) {
@@ -272,6 +265,7 @@ function validateMetric(value: unknown, location: string): void {
 
 function validateReconciliation(value: unknown, index: number): void {
   const result = record(value, `Reconciliation ${index}`);
+  schemaVersion(result.schemaVersion, `Reconciliation ${index}`);
   text(result.id, `Reconciliation ${index} id`);
   oneOf(
     result.kind,
@@ -421,14 +415,7 @@ function validateReconciliation(value: unknown, index: number): void {
 function validateRegime(value: unknown, location: string): void {
   oneOf(
     value,
-    [
-      "developing",
-      "adapting",
-      "steady",
-      "periodically-shedding",
-      "unclassified",
-      "unavailable",
-    ],
+    FLOW_REGIMES,
     location,
   );
 }
@@ -438,6 +425,12 @@ function record(value: unknown, location: string): Record<string, unknown> {
     throw new ValidationManifestSchemaError(`${location} must be an object.`);
   }
   return value as Record<string, unknown>;
+}
+
+function schemaVersion(value: unknown, location: string): void {
+  if (value !== "1") {
+    throw new ValidationManifestSchemaError(`${location} schema version must be 1.`);
+  }
 }
 
 function array(value: unknown, location: string): unknown[] {

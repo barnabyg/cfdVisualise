@@ -44,6 +44,38 @@ describe("validation manifest consumers", () => {
     });
   });
 
+  it("distinguishes missing, failing, and incompatible evidence", () => {
+    const active = {
+      backendId: "cpu-reference",
+      qualityTier: "reference",
+      buildId: "build-1",
+    };
+    const valid = validManifest();
+    const failed = {
+      ...valid,
+      status: "fail" as const,
+      cases: [
+        {
+          ...valid.cases[0]!,
+          status: "fail" as const,
+          failures: ["Case re5: drag measured 4; expected [1, 3] with tolerance 0."],
+        },
+        ...valid.cases.slice(1),
+      ],
+    };
+
+    expect(createMethodAndValidationModel(undefined, active)).toMatchObject({
+      evidenceState: "missing",
+    });
+    expect(createMethodAndValidationModel(failed, active)).toMatchObject({
+      evidenceState: "failing",
+      reason: expect.stringContaining("Case re5"),
+    });
+    expect(createMethodAndValidationModel({ ...valid, schemaVersion: "2" }, active)).toMatchObject({
+      evidenceState: "incompatible",
+    });
+  });
+
   it("does not treat a partial reference suite as validated release evidence", () => {
     const complete = validManifest();
     expect(
@@ -94,6 +126,7 @@ function validManifest(): ValidationManifest {
       metricVersions: { drag: "1" },
     },
     backend: {
+      schemaVersion: "1",
       id: "cpu-reference",
       kind: "cpu-worker",
       solver: "D2Q9 TRT/BFL",
@@ -128,6 +161,7 @@ function referenceCase(reynoldsNumber: number): ValidationManifest["cases"][numb
       : { liftRms: metricEvidence(0.2), strouhalNumber: metricEvidence(0.2) }),
   };
   return {
+    schemaVersion: "1",
     caseId: `re${reynoldsNumber}`,
     reynoldsNumber,
     configuration: {
@@ -146,6 +180,7 @@ function referenceCase(reynoldsNumber: number): ValidationManifest["cases"][numb
     },
     definition: manifestDefinition(reynoldsNumber, regime),
     status: "pass",
+    availability: "available",
     regime,
     achieved: {
       steps: 100,
@@ -161,6 +196,7 @@ function referenceCase(reynoldsNumber: number): ValidationManifest["cases"][numb
 function manifestDefinition(reynoldsNumber: number, regime: "steady" | "periodically-shedding") {
   const cylinderDiameterMeters = reynoldsNumber === 5 ? 0.005 : 0.01;
   return {
+    schemaVersion: "1" as const,
     physicalScenario: {
       flowSpeedMetersPerSecond:
         (reynoldsNumber * 0.000001) / cylinderDiameterMeters,
@@ -239,6 +275,7 @@ function sensitivityCase(
 
 function metricEvidence(measured: number) {
   return {
+    schemaVersion: "1" as const,
     applicability: "applicable" as const,
     measured,
     expected: { minimum: 0, maximum: 3 },
@@ -280,6 +317,7 @@ function reconciliationEvidence(
         : { recirculationLength: comparisonMetric(0.02) }),
     };
     return {
+      schemaVersion: "1",
       id: `${kind}-evidence-${cohortIndex}`,
       kind: kind as ValidationManifest["reconciliations"][number]["kind"],
       baselineCaseId,

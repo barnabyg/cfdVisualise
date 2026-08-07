@@ -99,6 +99,7 @@ describe("validation manifest schema", () => {
         ...valid,
         reconciliations: [
           {
+            schemaVersion: "1",
             id: "corrupt-grid",
             kind: "grid",
             baselineCaseId: "re20",
@@ -126,6 +127,49 @@ describe("validation manifest schema", () => {
       }),
     ).toThrow("cannot contain a failing metric");
   });
+
+  it("rejects incompatible nested result contract versions", () => {
+    const valid = validManifest();
+    const invalidContracts = [
+      { ...valid, backend: { ...valid.backend, schemaVersion: "2" } },
+      {
+        ...valid,
+        cases: [{ ...valid.cases[0]!, schemaVersion: "2" }],
+      },
+      {
+        ...valid,
+        cases: [
+          {
+            ...valid.cases[0]!,
+            metrics: {
+              meanDragCoefficient: {
+                ...valid.cases[0]!.metrics.meanDragCoefficient,
+                schemaVersion: "2",
+              },
+            },
+          },
+        ],
+      },
+      {
+        ...valid,
+        reconciliations: [
+          {
+            schemaVersion: "2",
+            id: "grid-check",
+            kind: "grid",
+            baselineCaseId: "re20",
+            comparisons: [],
+            status: "pass",
+            failures: [],
+          },
+        ],
+      },
+    ];
+
+    for (const incompatible of invalidContracts) {
+      expect(() => parseValidationManifest(incompatible)).toThrow("schema version");
+    }
+  });
 });
 
 function validManifest(): ValidationManifest {
@@ -137,6 +181,7 @@ function validManifest(): ValidationManifest {
       metricVersions: { drag: "1" },
     },
     backend: {
+      schemaVersion: "1",
       id: "cpu-reference",
       kind: "cpu-worker",
       solver: "D2Q9 TRT/BFL",
@@ -146,6 +191,7 @@ function validManifest(): ValidationManifest {
     status: "pass",
     cases: [
       {
+        schemaVersion: "1",
         caseId: "re20",
         reynoldsNumber: 20,
         configuration: {
@@ -168,6 +214,7 @@ function validManifest(): ValidationManifest {
         },
         definition: manifestDefinition(),
         status: "pass",
+        availability: "available",
         regime: "steady",
         achieved: {
           steps: 100,
@@ -177,6 +224,7 @@ function validManifest(): ValidationManifest {
         },
         metrics: {
           meanDragCoefficient: {
+            schemaVersion: "1",
             applicability: "applicable",
             measured: 2.1,
             expected: { minimum: 2, maximum: 2.2 },
@@ -200,6 +248,7 @@ function validManifest(): ValidationManifest {
 
 function manifestDefinition() {
   return {
+    schemaVersion: "1" as const,
     physicalScenario: {
       flowSpeedMetersPerSecond: 0.002,
       cylinderDiameterMeters: 0.01,

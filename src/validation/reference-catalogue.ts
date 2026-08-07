@@ -57,6 +57,7 @@ export function createReferenceValidationSuite(
     }
     validateExpectations(catalogueEntry.id, evidence.expectations);
     return {
+      schemaVersion: "1",
       ...catalogueEntry,
       ...evidence,
     } satisfies ValidationCaseDefinition;

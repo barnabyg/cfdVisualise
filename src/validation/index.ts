@@ -1,4 +1,9 @@
 export { runValidation } from "./run-validation.js";
+export {
+  parseSolverBackend,
+  parseValidationSuite,
+  ValidationContractSchemaError,
+} from "./validation-contract-schema.js";
 export { reconcileBackendManifests } from "./backend-parity.js";
 export type * from "./backend-parity.js";
 export {
@@ -16,6 +21,11 @@ export {
   createMethodAndValidationModel,
   evaluateReleaseGate,
 } from "./manifest-consumers.js";
+export {
+  MethodAndValidation,
+  MethodAndValidationSurface,
+} from "./method-and-validation-surface.js";
+export type * from "./method-and-validation-surface.js";
 export {
   createReferenceValidationSuite,
   REFERENCE_CASE_CATALOGUE,

@@ -14,6 +14,7 @@ describe("numerical health", () => {
       metricVersions: { densityHealth: "1" },
       cases: [
         {
+          schemaVersion: "1",
           id: "corrupted-density",
           reynoldsNumber: 20,
           physicalScenario: {
@@ -68,6 +69,7 @@ describe("numerical health", () => {
     };
     const backend: SolverBackend = {
       identity: {
+        schemaVersion: "1",
         id: "cpu-test",
         kind: "cpu-worker",
         solver: "test TRT/BFL",
@@ -86,9 +88,10 @@ describe("numerical health", () => {
 
     expect(manifest.cases[0]).toMatchObject({
       status: "fail",
-      regime: "unavailable",
+      availability: "unavailable",
       achieved: { steps: 1, flowThroughTime: 1 },
     });
+    expect(manifest.cases[0]).not.toHaveProperty("regime");
     expect(manifest.cases[0]?.failures).toEqual([
       expect.stringContaining("corrupted-density"),
     ]);

@@ -10,6 +10,7 @@ export interface ActiveValidationIdentity {
 export type MethodAndValidationModel =
   | {
       readonly status: "validated";
+      readonly evidenceState: "passing";
       readonly suiteId: string;
       readonly backendId: string;
       readonly qualityTier: string;
@@ -20,6 +21,7 @@ export type MethodAndValidationModel =
     }
   | {
       readonly status: "unavailable";
+      readonly evidenceState: "failing" | "missing" | "mismatched" | "incompatible";
       readonly reason: string;
     };
 
@@ -47,19 +49,31 @@ export function createMethodAndValidationModel(
   input: unknown,
   active: ActiveValidationIdentity,
 ): MethodAndValidationModel {
+  if (input === null || input === undefined) {
+    return {
+      status: "unavailable",
+      evidenceState: "missing",
+      reason: "Validation evidence is missing for the active quality tier.",
+    };
+  }
   let manifest;
   try {
     manifest = parseValidationManifest(input);
   } catch (error) {
     return {
       status: "unavailable",
+      evidenceState: "incompatible",
       reason: `Validation evidence is incompatible: ${errorMessage(error)}`,
     };
   }
   if (manifest.status !== "pass") {
     return {
       status: "unavailable",
-      reason: "Validation evidence did not pass its declared scientific gates.",
+      evidenceState: "failing",
+      reason:
+        manifest.cases.flatMap((result) => result.failures).at(0) ??
+        manifest.reconciliations.flatMap((result) => result.failures).at(0) ??
+        "Validation evidence did not pass its declared scientific gates.",
     };
   }
   const activeCases = manifest.cases.filter(
@@ -74,6 +88,7 @@ export function createMethodAndValidationModel(
   ) {
     return {
       status: "unavailable",
+      evidenceState: "mismatched",
       reason: `Validation evidence does not match active backend ${active.backendId}, tier ${active.qualityTier}, and build ${active.buildId}.`,
     };
   }
@@ -81,12 +96,14 @@ export function createMethodAndValidationModel(
   if (incompleteReason !== undefined) {
     return {
       status: "unavailable",
+      evidenceState: "failing",
       reason: `Validation evidence is incomplete: ${incompleteReason}`,
     };
   }
 
   return {
     status: "validated",
+    evidenceState: "passing",
     suiteId: manifest.suite.id,
     backendId: manifest.backend.id,
     qualityTier: active.qualityTier,
