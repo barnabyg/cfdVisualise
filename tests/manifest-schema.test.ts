@@ -170,6 +170,24 @@ describe("validation manifest schema", () => {
       expect(() => parseValidationManifest(incompatible)).toThrow("schema version");
     }
   });
+
+  it("represents numerical instability as a measured flow regime", () => {
+    const valid = validManifest();
+    const unstable = {
+      ...valid,
+      status: "fail",
+      cases: [
+        {
+          ...valid.cases[0]!,
+          status: "fail",
+          regime: "numerically-unstable",
+          failures: ["Case re20 measured numerical instability."],
+        },
+      ],
+    };
+
+    expect(parseValidationManifest(unstable)).toEqual(unstable);
+  });
 });
 
 function validManifest(): ValidationManifest {

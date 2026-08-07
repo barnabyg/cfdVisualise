@@ -3,6 +3,7 @@ export const FLOW_REGIMES = [
   "adapting",
   "steady",
   "periodically-shedding",
+  "numerically-unstable",
   "unclassified",
 ] as const;
 
