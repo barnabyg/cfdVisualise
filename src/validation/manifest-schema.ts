@@ -84,6 +84,9 @@ function validateCase(value: unknown, index: number): void {
   const reynoldsNumber = finite(result.reynoldsNumber, `Case ${index} Reynolds number`);
   oneOf(result.status, ["pass", "fail"], `Case ${index} status`);
   oneOf(result.availability, ["available", "unavailable"], `Case ${index} availability`);
+  if (result.status === "pass" && result.availability !== "available") {
+    throw new ValidationManifestSchemaError(`Passing case ${index} must be available.`);
+  }
   if (result.availability === "available") {
     validateRegime(result.regime, `Case ${index} regime`);
   } else if (result.regime !== undefined) {

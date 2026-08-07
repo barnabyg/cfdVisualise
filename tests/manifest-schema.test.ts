@@ -188,6 +188,18 @@ describe("validation manifest schema", () => {
 
     expect(parseValidationManifest(unstable)).toEqual(unstable);
   });
+
+  it("rejects a passing case whose result is unavailable", () => {
+    const valid = validManifest();
+    const { regime: _regime, ...withoutRegime } = valid.cases[0]!;
+
+    expect(() =>
+      parseValidationManifest({
+        ...valid,
+        cases: [{ ...withoutRegime, availability: "unavailable" }],
+      }),
+    ).toThrow("Passing case 0 must be available");
+  });
 });
 
 function validManifest(): ValidationManifest {
