@@ -35,7 +35,11 @@ describe("Method and validation surface", () => {
     const surface = screen.getByRole("region", { name: "Method and validation" });
     expect(surface.getAttribute("data-evidence-state")).toBe("passing");
     expect(screen.getByText("Synthetic TRT/BFL 1.0.0")).toBeTruthy();
-    expect(screen.getByText("Qualitative two-dimensional open-cylinder flow")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "A qualitative two-dimensional open-flow model within the validated Reynolds-number envelope.",
+      ),
+    ).toBeTruthy();
     expect(
       screen.getByText(
         "regularized-velocity / free-slip / fixed-density-nee / linear-bfl",
@@ -115,7 +119,8 @@ describe("Method and validation surface", () => {
           solver: "Synthetic TRT/BFL",
           solverVersion: "1.0.0",
           buildId: "build-1",
-          modelScope: "Qualitative two-dimensional open-cylinder flow",
+          modelScope:
+            "A qualitative two-dimensional open-flow model within the validated Reynolds-number envelope.",
           boundaries: {
             inlet: "regularized-velocity",
             lateral: "free-slip",

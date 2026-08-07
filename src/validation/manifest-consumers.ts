@@ -22,7 +22,7 @@ export type MethodAndValidationModel =
       readonly solver: string;
       readonly solverVersion: string;
       readonly buildId: string;
-      readonly modelScope: "Qualitative two-dimensional open-cylinder flow";
+      readonly modelScope: "A qualitative two-dimensional open-flow model within the validated Reynolds-number envelope.";
       readonly boundaries: BoundaryConfiguration;
       readonly referenceCases: readonly {
         readonly caseId: string;
@@ -114,7 +114,8 @@ export function createMethodAndValidationModel(
     solver: manifest.backend.solver,
     solverVersion: manifest.backend.solverVersion,
     buildId: manifest.backend.buildId,
-    modelScope: "Qualitative two-dimensional open-cylinder flow",
+    modelScope:
+      "A qualitative two-dimensional open-flow model within the validated Reynolds-number envelope.",
     boundaries: activeCases[0]!.configuration.boundaries,
     referenceCases: activeCases.map((result) => ({
       caseId: result.caseId,
