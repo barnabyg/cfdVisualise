@@ -71,6 +71,34 @@ describe("validation runner", () => {
         guardedBackend,
       ),
     ).rejects.toThrow("finite number");
+    const validCase = suite.cases[0]!;
+    const incompatibleCases = [
+      { ...validCase, reynoldsNumber: "twenty" },
+      { ...validCase, expectedRegimes: ["mystery-flow"] },
+      {
+        ...validCase,
+        protocol: { ...validCase.protocol, sampleInterval: "often" },
+      },
+      {
+        ...validCase,
+        configuration: { ...validCase.configuration, precision: "float16" },
+      },
+      { ...validCase, expectations: "none" },
+    ];
+    for (const incompatibleCase of incompatibleCases) {
+      await expect(
+        runValidation(
+          { ...suite, cases: [incompatibleCase] } as unknown as ValidationSuite,
+          guardedBackend,
+        ),
+      ).rejects.toThrow();
+    }
+    await expect(
+      runValidation(
+        suite,
+        { ...guardedBackend, schemaVersion: "2" } as unknown as SolverBackend,
+      ),
+    ).rejects.toThrow("backend schema version");
     expect(executions).toBe(0);
   });
 

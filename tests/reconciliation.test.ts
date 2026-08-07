@@ -31,6 +31,7 @@ describe("cross-run reconciliation", () => {
       ],
     };
     const backend: SolverBackend = {
+      schemaVersion: "1",
       identity: {
         schemaVersion: "1",
         id: "cpu-test",

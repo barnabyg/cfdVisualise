@@ -165,6 +165,7 @@ export interface ValidationSample {
 }
 
 export interface SolverBackend {
+  readonly schemaVersion: ContractSchemaVersion;
   readonly identity: BackendIdentity;
   runCase(caseDefinition: ValidationCaseDefinition): AsyncIterable<ValidationSample>;
 }

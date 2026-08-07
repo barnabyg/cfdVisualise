@@ -99,6 +99,7 @@ function caseDefinition(expectedRegime: FlowRegime): ValidationCaseDefinition {
 
 function backendWithSamples(samples: readonly ReturnType<typeof sample>[]): SolverBackend {
   return {
+    schemaVersion: "1",
     identity: {
       schemaVersion: "1",
       id: "cpu-test",

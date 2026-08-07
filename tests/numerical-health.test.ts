@@ -68,6 +68,7 @@ describe("numerical health", () => {
       reconciliations: [],
     };
     const backend: SolverBackend = {
+      schemaVersion: "1",
       identity: {
         schemaVersion: "1",
         id: "cpu-test",

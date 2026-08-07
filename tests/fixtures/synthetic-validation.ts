@@ -87,6 +87,7 @@ export function syntheticValidationSuite(): ValidationSuite {
 
 export function syntheticBackend(dragCoefficient = 2.1): SolverBackend {
   return {
+    schemaVersion: "1",
     identity: {
       schemaVersion: "1",
       id: "cpu-test",
