@@ -1,4 +1,5 @@
 import { createSchemaPrimitives, relativeDifference } from "./schema-primitives.js";
+import { createValidationStructureValidators } from "./validation-structure-schema.js";
 import {
   FLOW_REGIMES,
   VALIDATION_SCHEMA_VERSION,
@@ -24,16 +25,23 @@ export class ValidationContractSchemaError extends Error {
   }
 }
 
+const primitives = createSchemaPrimitives(
+  (message) => new ValidationContractSchemaError(message),
+);
 const {
   array,
-  finite,
   nonNegative,
   oneOf: choice,
   positive,
   record,
   text,
   versionedRecord,
-} = createSchemaPrimitives((message) => new ValidationContractSchemaError(message));
+} = primitives;
+const { validateNumericalConfiguration, validateRange } =
+  createValidationStructureValidators(
+    primitives,
+    (message) => new ValidationContractSchemaError(message),
+  );
 
 export function parseValidationSuite(input: unknown): ValidationSuite {
   const suite = versionedRecord(input, "Validation suite");
@@ -88,7 +96,10 @@ function validateCaseDefinition(value: unknown, index: number): void {
     throw new ValidationContractSchemaError(`${location} needs an expected regime.`);
   }
   expectedRegimes.forEach((regime) => choice(regime, FLOW_REGIMES, `${location} regime`));
-  validateConfiguration(definition.configuration, location);
+  validateNumericalConfiguration(
+    definition.configuration,
+    `${location} configuration`,
+  );
   validateProtocol(definition.protocol, location);
   validateHealth(definition.health, location);
   validateClassification(definition.classification, location);
@@ -118,35 +129,6 @@ function validateCaseDefinition(value: unknown, index: number): void {
   if (definition.cohort !== undefined) {
     text(definition.cohort, `${location} cohort`);
   }
-}
-
-function validateConfiguration(value: unknown, caseLocation: string): void {
-  const configuration = record(value, `${caseLocation} configuration`);
-  text(configuration.backendId, `${caseLocation} backend id`);
-  text(configuration.qualityTier, `${caseLocation} quality tier`);
-  choice(configuration.precision, ["float32", "float64", "mixed"], `${caseLocation} precision`);
-  choice(configuration.collision, ["D2Q9 TRT"], `${caseLocation} collision`);
-  const boundaries = record(configuration.boundaries, `${caseLocation} boundaries`);
-  choice(
-    boundaries.inlet,
-    ["regularized-velocity", "equilibrium-velocity"],
-    `${caseLocation} inlet`,
-  );
-  choice(boundaries.lateral, ["free-slip", "periodic", "no-slip"], `${caseLocation} lateral`);
-  choice(
-    boundaries.outlet,
-    ["fixed-density-nee", "convective", "extrapolated"],
-    `${caseLocation} outlet`,
-  );
-  choice(boundaries.cylinder, ["linear-bfl"], `${caseLocation} cylinder boundary`);
-  const domain = record(configuration.domain, `${caseLocation} domain`);
-  positive(domain.upstreamDiameters, `${caseLocation} upstream extent`);
-  positive(domain.downstreamDiameters, `${caseLocation} downstream extent`);
-  positive(domain.lateralDiameters, `${caseLocation} lateral extent`);
-  const cylinder = record(configuration.cylinder, `${caseLocation} cylinder`);
-  positive(cylinder.cellsPerDiameter, `${caseLocation} cylinder resolution`);
-  finite(cylinder.offsetX, `${caseLocation} cylinder x offset`);
-  finite(cylinder.offsetY, `${caseLocation} cylinder y offset`);
 }
 
 function validateProtocol(value: unknown, caseLocation: string): void {
@@ -227,13 +209,4 @@ function validateBackendIdentity(input: unknown): asserts input is BackendIdenti
   text(identity.solver, "Backend solver");
   text(identity.solverVersion, "Backend solver version");
   text(identity.buildId, "Backend build id");
-}
-
-function validateRange(value: unknown, location: string): void {
-  const range = record(value, location);
-  const minimum = finite(range.minimum, `${location} minimum`);
-  const maximum = finite(range.maximum, `${location} maximum`);
-  if (minimum > maximum) {
-    throw new ValidationContractSchemaError(`${location} minimum cannot exceed maximum.`);
-  }
 }

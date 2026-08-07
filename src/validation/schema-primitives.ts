@@ -80,6 +80,8 @@ export function createSchemaPrimitives(createError: SchemaErrorFactory) {
   };
 }
 
+export type SchemaPrimitives = ReturnType<typeof createSchemaPrimitives>;
+
 export function relativeDifference(left: number, right: number): number {
   return Math.abs(left - right) / Math.max(Math.abs(left), Math.abs(right), Number.EPSILON);
 }

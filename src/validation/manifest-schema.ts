@@ -4,6 +4,7 @@ import {
   VALIDATION_SCHEMA_VERSION,
   type ValidationManifest,
 } from "./types.js";
+import { createValidationStructureValidators } from "./validation-structure-schema.js";
 
 export class ValidationManifestSchemaError extends Error {
   public constructor(message: string) {
@@ -12,6 +13,9 @@ export class ValidationManifestSchemaError extends Error {
   }
 }
 
+const primitives = createSchemaPrimitives(
+  (message) => new ValidationManifestSchemaError(message),
+);
 const {
   array,
   finite,
@@ -21,7 +25,12 @@ const {
   record,
   schemaVersion,
   text,
-} = createSchemaPrimitives((message) => new ValidationManifestSchemaError(message));
+} = primitives;
+const { validateNumericalConfiguration, validateRange } =
+  createValidationStructureValidators(
+    primitives,
+    (message) => new ValidationManifestSchemaError(message),
+  );
 
 export function parseValidationManifest(input: unknown): ValidationManifest {
   const manifest = record(input, "Validation manifest");
@@ -112,7 +121,10 @@ function validateCase(value: unknown, index: number): void {
       `Unavailable case ${index} cannot report a measured flow regime.`,
     );
   }
-  validateConfiguration(result.configuration, index);
+  validateNumericalConfiguration(
+    result.configuration,
+    `Case ${index} configuration`,
+  );
   validateDefinition(result.definition, reynoldsNumber, index);
   const achieved = record(result.achieved, `Case ${index} achieved protocol`);
   finite(achieved.steps, `Case ${index} achieved steps`);
@@ -223,43 +235,6 @@ function validateDefinition(value: unknown, reynoldsNumber: number, caseIndex: n
     classification.maximumPeriodicAmplitudeVariation,
     `Case ${caseIndex} periodic amplitude variation`,
   );
-}
-
-function validateConfiguration(value: unknown, caseIndex: number): void {
-  const configuration = record(value, `Case ${caseIndex} configuration`);
-  text(configuration.backendId, `Case ${caseIndex} backend id`);
-  text(configuration.qualityTier, `Case ${caseIndex} quality tier`);
-  oneOf(
-    configuration.precision,
-    ["float32", "float64", "mixed"],
-    `Case ${caseIndex} precision`,
-  );
-  oneOf(configuration.collision, ["D2Q9 TRT"], `Case ${caseIndex} collision`);
-  const boundaries = record(configuration.boundaries, `Case ${caseIndex} boundaries`);
-  oneOf(
-    boundaries.inlet,
-    ["regularized-velocity", "equilibrium-velocity"],
-    `Case ${caseIndex} inlet boundary`,
-  );
-  oneOf(
-    boundaries.lateral,
-    ["free-slip", "periodic", "no-slip"],
-    `Case ${caseIndex} lateral boundary`,
-  );
-  oneOf(
-    boundaries.outlet,
-    ["fixed-density-nee", "convective", "extrapolated"],
-    `Case ${caseIndex} outlet boundary`,
-  );
-  oneOf(boundaries.cylinder, ["linear-bfl"], `Case ${caseIndex} cylinder boundary`);
-  const domain = record(configuration.domain, `Case ${caseIndex} domain`);
-  for (const name of ["upstreamDiameters", "downstreamDiameters", "lateralDiameters"] as const) {
-    finite(domain[name], `Case ${caseIndex} domain ${name}`);
-  }
-  const cylinder = record(configuration.cylinder, `Case ${caseIndex} cylinder`);
-  for (const name of ["cellsPerDiameter", "offsetX", "offsetY"] as const) {
-    finite(cylinder[name], `Case ${caseIndex} cylinder ${name}`);
-  }
 }
 
 function validateMetric(value: unknown, location: string): void {
@@ -478,15 +453,6 @@ function validateRegime(value: unknown, location: string): void {
 function strings(value: unknown, location: string): void {
   for (const item of array(value, location)) {
     text(item, `${location} item`);
-  }
-}
-
-function validateRange(value: unknown, location: string): void {
-  const range = record(value, location);
-  const minimum = finite(range.minimum, `${location} minimum`);
-  const maximum = finite(range.maximum, `${location} maximum`);
-  if (minimum > maximum) {
-    throw new ValidationManifestSchemaError(`${location} is inverted.`);
   }
 }
 

@@ -200,6 +200,30 @@ describe("validation manifest schema", () => {
       }),
     ).toThrow("Passing case 0 must be available");
   });
+
+  it("enforces positive numerical dimensions at the manifest boundary", () => {
+    const valid = validManifest();
+    const configuration = valid.cases[0]!.configuration;
+    const invalidConfigurations = [
+      {
+        ...configuration,
+        domain: { ...configuration.domain, upstreamDiameters: 0 },
+      },
+      {
+        ...configuration,
+        cylinder: { ...configuration.cylinder, cellsPerDiameter: 0 },
+      },
+    ];
+
+    for (const invalidConfiguration of invalidConfigurations) {
+      expect(() =>
+        parseValidationManifest({
+          ...valid,
+          cases: [{ ...valid.cases[0]!, configuration: invalidConfiguration }],
+        }),
+      ).toThrow("positive");
+    }
+  });
 });
 
 function validManifest(): ValidationManifest {
