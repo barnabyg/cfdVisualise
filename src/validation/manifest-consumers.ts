@@ -1,5 +1,10 @@
 import { parseValidationManifest } from "./manifest-schema.js";
-import type { ScientificSource } from "./types.js";
+import type {
+  BoundaryConfiguration,
+  FlowRegime,
+  MetricEvidence,
+  ScientificSource,
+} from "./types.js";
 
 export interface ActiveValidationIdentity {
   readonly backendId: string;
@@ -10,16 +15,26 @@ export interface ActiveValidationIdentity {
 export type MethodAndValidationModel =
   | {
       readonly status: "validated";
+      readonly evidenceState: "passing";
       readonly suiteId: string;
       readonly backendId: string;
       readonly qualityTier: string;
       readonly solver: string;
       readonly solverVersion: string;
       readonly buildId: string;
+      readonly modelScope: "A qualitative two-dimensional open-flow model within the validated Reynolds-number envelope.";
+      readonly boundaries: BoundaryConfiguration;
+      readonly referenceCases: readonly {
+        readonly caseId: string;
+        readonly reynoldsNumber: number;
+        readonly regime?: FlowRegime;
+        readonly metrics: Readonly<Record<string, MetricEvidence>>;
+      }[];
       readonly sources: readonly ScientificSource[];
     }
   | {
       readonly status: "unavailable";
+      readonly evidenceState: "failing" | "missing" | "mismatched" | "incompatible";
       readonly reason: string;
     };
 
@@ -47,19 +62,31 @@ export function createMethodAndValidationModel(
   input: unknown,
   active: ActiveValidationIdentity,
 ): MethodAndValidationModel {
+  if (input === null || input === undefined) {
+    return {
+      status: "unavailable",
+      evidenceState: "missing",
+      reason: "Validation evidence is missing for the active quality tier.",
+    };
+  }
   let manifest;
   try {
     manifest = parseValidationManifest(input);
   } catch (error) {
     return {
       status: "unavailable",
+      evidenceState: "incompatible",
       reason: `Validation evidence is incompatible: ${errorMessage(error)}`,
     };
   }
   if (manifest.status !== "pass") {
     return {
       status: "unavailable",
-      reason: "Validation evidence did not pass its declared scientific gates.",
+      evidenceState: "failing",
+      reason:
+        manifest.cases.flatMap((result) => result.failures).at(0) ??
+        manifest.reconciliations.flatMap((result) => result.failures).at(0) ??
+        "Validation evidence did not pass its declared scientific gates.",
     };
   }
   const activeCases = manifest.cases.filter(
@@ -74,25 +101,28 @@ export function createMethodAndValidationModel(
   ) {
     return {
       status: "unavailable",
+      evidenceState: "mismatched",
       reason: `Validation evidence does not match active backend ${active.backendId}, tier ${active.qualityTier}, and build ${active.buildId}.`,
     };
   }
-  const incompleteReason = releaseEvidenceProblem(activeCases, manifest.reconciliations);
-  if (incompleteReason !== undefined) {
-    return {
-      status: "unavailable",
-      reason: `Validation evidence is incomplete: ${incompleteReason}`,
-    };
-  }
-
   return {
     status: "validated",
+    evidenceState: "passing",
     suiteId: manifest.suite.id,
     backendId: manifest.backend.id,
     qualityTier: active.qualityTier,
     solver: manifest.backend.solver,
     solverVersion: manifest.backend.solverVersion,
     buildId: manifest.backend.buildId,
+    modelScope:
+      "A qualitative two-dimensional open-flow model within the validated Reynolds-number envelope.",
+    boundaries: activeCases[0]!.configuration.boundaries,
+    referenceCases: activeCases.map((result) => ({
+      caseId: result.caseId,
+      reynoldsNumber: result.reynoldsNumber,
+      ...(result.regime === undefined ? {} : { regime: result.regime }),
+      metrics: result.metrics,
+    })),
     sources: collectSources(activeCases.flatMap((result) => Object.values(result.metrics))),
   };
 }
@@ -317,10 +347,25 @@ function findComparisonCases(
 
 export function evaluateReleaseGate(input: ReleaseGateInput): ReleaseGateResult {
   const validationModel = createMethodAndValidationModel(input.manifest, input.active);
-  const validation =
-    validationModel.status === "validated"
-      ? ({ status: "pass" } as const)
-      : ({ status: "fail", reason: validationModel.reason } as const);
+  let validation: ReleaseGateResult["validation"];
+  if (validationModel.status === "unavailable") {
+    validation = { status: "fail", reason: validationModel.reason };
+  } else {
+    const manifest = parseValidationManifest(input.manifest);
+    const activeCases = manifest.cases.filter(
+      (result) =>
+        result.configuration.backendId === input.active.backendId &&
+        result.configuration.qualityTier === input.active.qualityTier,
+    );
+    const incompleteReason = releaseEvidenceProblem(activeCases, manifest.reconciliations);
+    validation =
+      incompleteReason === undefined
+        ? { status: "pass" }
+        : {
+            status: "fail",
+            reason: `Validation evidence is incomplete: ${incompleteReason}`,
+          };
+  }
   const performanceStatus =
     Number.isFinite(input.guideDurationSeconds) &&
     Number.isFinite(input.maximumGuideDurationSeconds) &&

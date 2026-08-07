@@ -10,6 +10,7 @@ import {
 describe("periodic regime evidence", () => {
   it("measures Strouhal only after a stable multi-cycle lift signal", async () => {
     const definition: ValidationCaseDefinition = {
+      schemaVersion: "1",
       id: "re100-periodic",
       reynoldsNumber: 100,
       physicalScenario: {
@@ -81,7 +82,9 @@ describe("periodic regime evidence", () => {
       reconciliations: [],
     };
     const backend: SolverBackend = {
+      schemaVersion: "1",
       identity: {
+        schemaVersion: "1",
         id: "cpu-test",
         kind: "cpu-worker",
         solver: "test TRT/BFL",

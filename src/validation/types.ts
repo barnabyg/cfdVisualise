@@ -1,10 +1,19 @@
-export type FlowRegime =
-  | "developing"
-  | "adapting"
-  | "steady"
-  | "periodically-shedding"
-  | "unclassified"
-  | "unavailable";
+export const FLOW_REGIMES = [
+  "developing",
+  "adapting",
+  "steady",
+  "periodically-shedding",
+  "numerically-unstable",
+  "unclassified",
+] as const;
+
+export const VALIDATION_SCHEMA_VERSION = "1" as const;
+
+export type FlowRegime = (typeof FLOW_REGIMES)[number];
+
+export type ResultAvailability = "available" | "unavailable";
+
+export type ContractSchemaVersion = typeof VALIDATION_SCHEMA_VERSION;
 
 export interface InclusiveRange {
   readonly minimum: number;
@@ -94,6 +103,7 @@ export interface MetricExpectation {
 }
 
 export interface ValidationCaseDefinition {
+  readonly schemaVersion: ContractSchemaVersion;
   readonly id: string;
   readonly reynoldsNumber: number;
   readonly physicalScenario: PhysicalScenario;
@@ -107,6 +117,7 @@ export interface ValidationCaseDefinition {
 }
 
 export interface ReconciliationDefinition {
+  readonly schemaVersion: ContractSchemaVersion;
   readonly id: string;
   readonly kind: "grid" | "domain" | "cylinder-placement" | "boundary" | "backend";
   readonly baselineCaseId: string;
@@ -118,7 +129,7 @@ export interface ReconciliationDefinition {
 }
 
 export interface ValidationSuite {
-  readonly schemaVersion: "1";
+  readonly schemaVersion: ContractSchemaVersion;
   readonly id: string;
   readonly metricVersions: Readonly<Record<string, string>>;
   readonly cases: readonly ValidationCaseDefinition[];
@@ -126,6 +137,7 @@ export interface ValidationSuite {
 }
 
 export interface BackendIdentity {
+  readonly schemaVersion: ContractSchemaVersion;
   readonly id: string;
   readonly kind: "cpu-worker" | "webgpu";
   readonly solver: string;
@@ -155,11 +167,13 @@ export interface ValidationSample {
 }
 
 export interface SolverBackend {
+  readonly schemaVersion: ContractSchemaVersion;
   readonly identity: BackendIdentity;
   runCase(caseDefinition: ValidationCaseDefinition): AsyncIterable<ValidationSample>;
 }
 
 export interface MetricEvidence {
+  readonly schemaVersion: ContractSchemaVersion;
   readonly applicability: "applicable" | "inapplicable";
   readonly measured?: number;
   readonly expected?: InclusiveRange;
@@ -170,10 +184,12 @@ export interface MetricEvidence {
 }
 
 export interface CaseManifest {
+  readonly schemaVersion: ContractSchemaVersion;
   readonly caseId: string;
   readonly reynoldsNumber: number;
   readonly configuration: NumericalConfiguration;
   readonly definition: {
+    readonly schemaVersion: ContractSchemaVersion;
     readonly physicalScenario: PhysicalScenario;
     readonly expectedRegimes: readonly FlowRegime[];
     readonly protocol: SamplingProtocol;
@@ -181,7 +197,8 @@ export interface CaseManifest {
     readonly classification: ClassificationThresholds;
   };
   readonly status: "pass" | "fail";
-  readonly regime: FlowRegime;
+  readonly availability: ResultAvailability;
+  readonly regime?: FlowRegime;
   readonly achieved: {
     readonly steps: number;
     readonly flowThroughTime: number;
@@ -193,6 +210,7 @@ export interface CaseManifest {
 }
 
 export interface ReconciliationManifest {
+  readonly schemaVersion: ContractSchemaVersion;
   readonly id: string;
   readonly kind: ReconciliationDefinition["kind"];
   readonly baselineCaseId: string;
@@ -223,10 +241,10 @@ export interface ReconciliationManifest {
 }
 
 export interface ValidationManifest {
-  readonly schemaVersion: "1";
+  readonly schemaVersion: ContractSchemaVersion;
   readonly suite: {
     readonly id: string;
-    readonly schemaVersion: "1";
+    readonly schemaVersion: ContractSchemaVersion;
     readonly metricVersions: Readonly<Record<string, string>>;
   };
   readonly backend: BackendIdentity;

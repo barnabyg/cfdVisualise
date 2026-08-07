@@ -1,7 +1,8 @@
 import { parseValidationManifest } from "./manifest-schema.js";
-import type {
-  ReconciliationManifest,
-  ValidationManifest,
+import {
+  VALIDATION_SCHEMA_VERSION,
+  type ReconciliationManifest,
+  type ValidationManifest,
 } from "./types.js";
 
 export interface BackendParityDefinition {
@@ -114,6 +115,7 @@ export function reconcileBackendManifests(
   }
 
   return {
+    schemaVersion: VALIDATION_SCHEMA_VERSION,
     id: definition.id,
     kind: "backend",
     baselineCaseId: "matched-backend-cases",

@@ -1,10 +1,11 @@
-import type {
-  FlowRegime,
-  MetricExpectation,
-  PhysicalScenario,
-  ReconciliationDefinition,
-  ValidationCaseDefinition,
-  ValidationSuite,
+import {
+  VALIDATION_SCHEMA_VERSION,
+  type FlowRegime,
+  type MetricExpectation,
+  type PhysicalScenario,
+  type ReconciliationDefinition,
+  type ValidationCaseDefinition,
+  type ValidationSuite,
 } from "./types.js";
 
 export interface ReferenceCaseCatalogueEntry {
@@ -57,6 +58,7 @@ export function createReferenceValidationSuite(
     }
     validateExpectations(catalogueEntry.id, evidence.expectations);
     return {
+      schemaVersion: VALIDATION_SCHEMA_VERSION,
       ...catalogueEntry,
       ...evidence,
     } satisfies ValidationCaseDefinition;
@@ -67,7 +69,7 @@ export function createReferenceValidationSuite(
     throw new Error("Reference and sensitivity case identifiers must be unique.");
   }
   return {
-    schemaVersion: "1",
+    schemaVersion: VALIDATION_SCHEMA_VERSION,
     id: input.id,
     metricVersions: input.metricVersions,
     cases: allCases,

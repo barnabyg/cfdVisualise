@@ -1,4 +1,10 @@
-import type { ValidationManifest } from "./types.js";
+import { createSchemaPrimitives, relativeDifference } from "./schema-primitives.js";
+import {
+  FLOW_REGIMES,
+  VALIDATION_SCHEMA_VERSION,
+  type ValidationManifest,
+} from "./types.js";
+import { createValidationStructureValidators } from "./validation-structure-schema.js";
 
 export class ValidationManifestSchemaError extends Error {
   public constructor(message: string) {
@@ -7,9 +13,28 @@ export class ValidationManifestSchemaError extends Error {
   }
 }
 
+const primitives = createSchemaPrimitives(
+  (message) => new ValidationManifestSchemaError(message),
+);
+const {
+  array,
+  finite,
+  nonNegative,
+  oneOf,
+  positive,
+  record,
+  schemaVersion,
+  text,
+} = primitives;
+const { validateNumericalConfiguration, validateRange } =
+  createValidationStructureValidators(
+    primitives,
+    (message) => new ValidationManifestSchemaError(message),
+  );
+
 export function parseValidationManifest(input: unknown): ValidationManifest {
   const manifest = record(input, "Validation manifest");
-  if (manifest.schemaVersion !== "1") {
+  if (manifest.schemaVersion !== VALIDATION_SCHEMA_VERSION) {
     throw new ValidationManifestSchemaError(
       `Unsupported validation manifest schema version: ${String(manifest.schemaVersion)}.`,
     );
@@ -57,8 +82,10 @@ export function serializeValidationManifest(input: unknown): string {
 function validateSuite(value: unknown): void {
   const suite = record(value, "Validation suite identity");
   text(suite.id, "Validation suite id");
-  if (suite.schemaVersion !== "1") {
-    throw new ValidationManifestSchemaError("Validation suite schema version must be 1.");
+  if (suite.schemaVersion !== VALIDATION_SCHEMA_VERSION) {
+    throw new ValidationManifestSchemaError(
+      `Validation suite schema version must be ${VALIDATION_SCHEMA_VERSION}.`,
+    );
   }
   const versions = record(suite.metricVersions, "Metric versions");
   for (const [metric, version] of Object.entries(versions)) {
@@ -69,6 +96,7 @@ function validateSuite(value: unknown): void {
 
 function validateBackend(value: unknown): void {
   const backend = record(value, "Backend identity");
+  schemaVersion(backend.schemaVersion, "Backend identity");
   text(backend.id, "Backend id");
   oneOf(backend.kind, ["cpu-worker", "webgpu"], "Backend kind");
   text(backend.solver, "Solver identity");
@@ -78,22 +106,25 @@ function validateBackend(value: unknown): void {
 
 function validateCase(value: unknown, index: number): void {
   const result = record(value, `Case ${index}`);
+  schemaVersion(result.schemaVersion, `Case ${index}`);
   text(result.caseId, `Case ${index} id`);
   const reynoldsNumber = finite(result.reynoldsNumber, `Case ${index} Reynolds number`);
   oneOf(result.status, ["pass", "fail"], `Case ${index} status`);
-  oneOf(
-    result.regime,
-    [
-      "developing",
-      "adapting",
-      "steady",
-      "periodically-shedding",
-      "unclassified",
-      "unavailable",
-    ],
-    `Case ${index} regime`,
+  oneOf(result.availability, ["available", "unavailable"], `Case ${index} availability`);
+  if (result.status === "pass" && result.availability !== "available") {
+    throw new ValidationManifestSchemaError(`Passing case ${index} must be available.`);
+  }
+  if (result.availability === "available") {
+    validateRegime(result.regime, `Case ${index} regime`);
+  } else if (result.regime !== undefined) {
+    throw new ValidationManifestSchemaError(
+      `Unavailable case ${index} cannot report a measured flow regime.`,
+    );
+  }
+  validateNumericalConfiguration(
+    result.configuration,
+    `Case ${index} configuration`,
   );
-  validateConfiguration(result.configuration, index);
   validateDefinition(result.definition, reynoldsNumber, index);
   const achieved = record(result.achieved, `Case ${index} achieved protocol`);
   finite(achieved.steps, `Case ${index} achieved steps`);
@@ -104,14 +135,34 @@ function validateCase(value: unknown, index: number): void {
   for (const [metric, evidence] of Object.entries(metrics)) {
     validateMetric(evidence, `Case ${index} metric ${metric}`);
   }
+  const applicableMetrics = Object.values(metrics)
+    .map((value) => record(value, `Case ${index} metric evidence`))
+    .filter((metric) => metric.applicability === "applicable");
   strings(result.failures, `Case ${index} failures`);
   if (result.status === "pass" && array(result.failures, `Case ${index} failures`).length > 0) {
     throw new ValidationManifestSchemaError(`Passing case ${index} cannot contain failures.`);
+  }
+  if (
+    result.status === "pass" &&
+    applicableMetrics.length === 0
+  ) {
+    throw new ValidationManifestSchemaError(
+      `Passing case ${index} needs at least one applicable scientific metric.`,
+    );
+  }
+  if (
+    result.status === "pass" &&
+    applicableMetrics.some((metric) => metric.status !== "pass")
+  ) {
+    throw new ValidationManifestSchemaError(
+      `Passing case ${index} cannot contain failed or unassessed applicable metric evidence.`,
+    );
   }
 }
 
 function validateDefinition(value: unknown, reynoldsNumber: number, caseIndex: number): void {
   const definition = record(value, `Case ${caseIndex} definition`);
+  schemaVersion(definition.schemaVersion, `Case ${caseIndex} definition`);
   const scenario = record(
     definition.physicalScenario,
     `Case ${caseIndex} physical scenario`,
@@ -141,14 +192,7 @@ function validateDefinition(value: unknown, reynoldsNumber: number, caseIndex: n
   for (const regime of expectedRegimes) {
     oneOf(
       regime,
-      [
-        "developing",
-        "adapting",
-        "steady",
-        "periodically-shedding",
-        "unclassified",
-        "unavailable",
-      ],
+      FLOW_REGIMES,
       `Case ${caseIndex} expected regime`,
     );
   }
@@ -193,50 +237,15 @@ function validateDefinition(value: unknown, reynoldsNumber: number, caseIndex: n
   );
 }
 
-function validateConfiguration(value: unknown, caseIndex: number): void {
-  const configuration = record(value, `Case ${caseIndex} configuration`);
-  text(configuration.backendId, `Case ${caseIndex} backend id`);
-  text(configuration.qualityTier, `Case ${caseIndex} quality tier`);
-  oneOf(
-    configuration.precision,
-    ["float32", "float64", "mixed"],
-    `Case ${caseIndex} precision`,
-  );
-  oneOf(configuration.collision, ["D2Q9 TRT"], `Case ${caseIndex} collision`);
-  const boundaries = record(configuration.boundaries, `Case ${caseIndex} boundaries`);
-  oneOf(
-    boundaries.inlet,
-    ["regularized-velocity", "equilibrium-velocity"],
-    `Case ${caseIndex} inlet boundary`,
-  );
-  oneOf(
-    boundaries.lateral,
-    ["free-slip", "periodic", "no-slip"],
-    `Case ${caseIndex} lateral boundary`,
-  );
-  oneOf(
-    boundaries.outlet,
-    ["fixed-density-nee", "convective", "extrapolated"],
-    `Case ${caseIndex} outlet boundary`,
-  );
-  oneOf(boundaries.cylinder, ["linear-bfl"], `Case ${caseIndex} cylinder boundary`);
-  const domain = record(configuration.domain, `Case ${caseIndex} domain`);
-  for (const name of ["upstreamDiameters", "downstreamDiameters", "lateralDiameters"] as const) {
-    finite(domain[name], `Case ${caseIndex} domain ${name}`);
-  }
-  const cylinder = record(configuration.cylinder, `Case ${caseIndex} cylinder`);
-  for (const name of ["cellsPerDiameter", "offsetX", "offsetY"] as const) {
-    finite(cylinder[name], `Case ${caseIndex} cylinder ${name}`);
-  }
-}
-
 function validateMetric(value: unknown, location: string): void {
   const metric = record(value, location);
+  schemaVersion(metric.schemaVersion, location);
   oneOf(metric.applicability, ["applicable", "inapplicable"], `${location} applicability`);
   oneOf(metric.status, ["pass", "fail", "not-assessed"], `${location} status`);
-  if (metric.measured !== undefined) {
-    finite(metric.measured, `${location} must have a finite measured value`);
-  }
+  const measured =
+    metric.measured === undefined
+      ? undefined
+      : finite(metric.measured, `${location} must have a finite measured value`);
   if (metric.applicability === "inapplicable") {
     if (metric.measured !== undefined || metric.status === "pass") {
       throw new ValidationManifestSchemaError(
@@ -258,6 +267,20 @@ function validateMetric(value: unknown, location: string): void {
   if (tolerance < 0) {
     throw new ValidationManifestSchemaError(`${location} tolerance must not be negative.`);
   }
+  const measurementPasses =
+    measured !== undefined &&
+    measured >= minimum - tolerance &&
+    measured <= maximum + tolerance;
+  if ((metric.status === "pass") !== measurementPasses) {
+    throw new ValidationManifestSchemaError(
+      `${location} status contradicts its measured value, expected range, and tolerance.`,
+    );
+  }
+  if (metric.status === "not-assessed") {
+    throw new ValidationManifestSchemaError(
+      `${location} is applicable and must be assessed as pass or fail.`,
+    );
+  }
   const sources = array(metric.sources, `${location} scientific sources`);
   if (sources.length === 0) {
     throw new ValidationManifestSchemaError(`${location} requires at least one scientific source.`);
@@ -272,6 +295,7 @@ function validateMetric(value: unknown, location: string): void {
 
 function validateReconciliation(value: unknown, index: number): void {
   const result = record(value, `Reconciliation ${index}`);
+  schemaVersion(result.schemaVersion, `Reconciliation ${index}`);
   text(result.id, `Reconciliation ${index} id`);
   oneOf(
     result.kind,
@@ -421,86 +445,14 @@ function validateReconciliation(value: unknown, index: number): void {
 function validateRegime(value: unknown, location: string): void {
   oneOf(
     value,
-    [
-      "developing",
-      "adapting",
-      "steady",
-      "periodically-shedding",
-      "unclassified",
-      "unavailable",
-    ],
+    FLOW_REGIMES,
     location,
   );
-}
-
-function record(value: unknown, location: string): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new ValidationManifestSchemaError(`${location} must be an object.`);
-  }
-  return value as Record<string, unknown>;
-}
-
-function array(value: unknown, location: string): unknown[] {
-  if (!Array.isArray(value)) {
-    throw new ValidationManifestSchemaError(`${location} must be an array.`);
-  }
-  return value;
 }
 
 function strings(value: unknown, location: string): void {
   for (const item of array(value, location)) {
     text(item, `${location} item`);
-  }
-}
-
-function text(value: unknown, location: string): string {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new ValidationManifestSchemaError(`${location} must be a non-empty string.`);
-  }
-  return value;
-}
-
-function finite(value: unknown, location: string): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new ValidationManifestSchemaError(`${location} must be finite.`);
-  }
-  return value;
-}
-
-function positive(value: unknown, location: string): number {
-  const result = finite(value, location);
-  if (result <= 0) {
-    throw new ValidationManifestSchemaError(`${location} must be positive.`);
-  }
-  return result;
-}
-
-function nonNegative(value: unknown, location: string): number {
-  const result = finite(value, location);
-  if (result < 0) {
-    throw new ValidationManifestSchemaError(`${location} must not be negative.`);
-  }
-  return result;
-}
-
-function validateRange(value: unknown, location: string): void {
-  const range = record(value, location);
-  const minimum = finite(range.minimum, `${location} minimum`);
-  const maximum = finite(range.maximum, `${location} maximum`);
-  if (minimum > maximum) {
-    throw new ValidationManifestSchemaError(`${location} is inverted.`);
-  }
-}
-
-function relativeDifference(left: number, right: number): number {
-  return Math.abs(left - right) / Math.max(Math.abs(left), Math.abs(right), Number.EPSILON);
-}
-
-function oneOf(value: unknown, choices: readonly string[], location: string): void {
-  if (typeof value !== "string" || !choices.includes(value)) {
-    throw new ValidationManifestSchemaError(
-      `${location} must be one of ${choices.join(", ")}.`,
-    );
   }
 }
 
