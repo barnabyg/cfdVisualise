@@ -109,6 +109,17 @@ function validateCase(value: unknown, index: number): void {
   if (result.status === "pass" && array(result.failures, `Case ${index} failures`).length > 0) {
     throw new ValidationManifestSchemaError(`Passing case ${index} cannot contain failures.`);
   }
+  if (
+    result.status === "pass" &&
+    Object.values(metrics).some((value) => {
+      const metric = record(value, `Case ${index} metric evidence`);
+      return metric.applicability === "applicable" && metric.status !== "pass";
+    })
+  ) {
+    throw new ValidationManifestSchemaError(
+      `Passing case ${index} cannot contain failed or unassessed applicable metric evidence.`,
+    );
+  }
 }
 
 function validateDefinition(value: unknown, reynoldsNumber: number, caseIndex: number): void {
@@ -230,9 +241,10 @@ function validateMetric(value: unknown, location: string): void {
   schemaVersion(metric.schemaVersion, location);
   oneOf(metric.applicability, ["applicable", "inapplicable"], `${location} applicability`);
   oneOf(metric.status, ["pass", "fail", "not-assessed"], `${location} status`);
-  if (metric.measured !== undefined) {
-    finite(metric.measured, `${location} must have a finite measured value`);
-  }
+  const measured =
+    metric.measured === undefined
+      ? undefined
+      : finite(metric.measured, `${location} must have a finite measured value`);
   if (metric.applicability === "inapplicable") {
     if (metric.measured !== undefined || metric.status === "pass") {
       throw new ValidationManifestSchemaError(
@@ -253,6 +265,20 @@ function validateMetric(value: unknown, location: string): void {
   const tolerance = finite(metric.tolerance, `${location} tolerance`);
   if (tolerance < 0) {
     throw new ValidationManifestSchemaError(`${location} tolerance must not be negative.`);
+  }
+  const measurementPasses =
+    measured !== undefined &&
+    measured >= minimum - tolerance &&
+    measured <= maximum + tolerance;
+  if ((metric.status === "pass") !== measurementPasses) {
+    throw new ValidationManifestSchemaError(
+      `${location} status contradicts its measured value, expected range, and tolerance.`,
+    );
+  }
+  if (metric.status === "not-assessed") {
+    throw new ValidationManifestSchemaError(
+      `${location} is applicable and must be assessed as pass or fail.`,
+    );
   }
   const sources = array(metric.sources, `${location} scientific sources`);
   if (sources.length === 0) {
