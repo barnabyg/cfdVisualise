@@ -111,6 +111,9 @@ function metricSummary(
   metric: string,
   evidence: MetricEvidence,
 ): string {
+  if (evidence.applicability === "inapplicable") {
+    return `${metric}: not applicable \u2014 ${evidence.status}`;
+  }
   const measured = evidence.measured === undefined ? "unavailable" : String(evidence.measured);
   const expectation =
     evidence.expected === undefined

@@ -45,6 +45,9 @@ describe("Method and validation surface", () => {
         "regularized-velocity / free-slip / fixed-density-nee / linear-bfl",
       ),
     ).toBeTruthy();
+    expect(
+      screen.getByText(/strouhalNumber: not applicable .* not-assessed/),
+    ).toBeTruthy();
     expect(screen.getByText("Re=20 — steady")).toBeTruthy();
     expect(
       screen.getByText(
