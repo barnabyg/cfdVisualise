@@ -43,6 +43,9 @@ export {
 } from "./reference-catalogue.js";
 export { STEADY_RE20_VALIDATION_SUITE } from "./steady-re20-reference.js";
 export { PERIODIC_RE100_VALIDATION_SUITE } from "./periodic-re100-reference.js";
+export {
+  FULL_REYNOLDS_ENVELOPE_VALIDATION_SUITE,
+} from "./full-reynolds-envelope-reference.js";
 export type * from "./reference-catalogue.js";
 export type * from "./manifest-consumers.js";
 export type * from "./metrics.js";

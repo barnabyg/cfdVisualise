@@ -116,6 +116,7 @@ export type ObservableMetric =
 
 export interface MetricExpectation {
   readonly metric: ObservableMetric;
+  readonly applicableRegimes?: readonly FlowRegime[];
   readonly range: InclusiveRange;
   readonly tolerance: number;
   readonly sources: readonly ScientificSource[];
