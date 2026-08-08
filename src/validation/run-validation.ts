@@ -200,9 +200,12 @@ async function runCase(
   );
   const warmUpEnd = lastAtOrBefore(samples, definition.protocol.warmUpFlowThroughTime);
   const metrics = calculateMetrics(definition, warmUpEnd, sampleWindow, failures);
-  const analysisWindow = warmUpEnd === undefined ? sampleWindow : [warmUpEnd, ...sampleWindow];
   const availability = failures.length === 0 ? "available" : "unavailable";
-  const regime = availability === "available" ? classify(definition, analysisWindow) : undefined;
+  const periodicWindow = warmUpEnd === undefined ? sampleWindow : [warmUpEnd, ...sampleWindow];
+  const regime =
+    availability === "available"
+      ? classify(definition, sampleWindow, periodicWindow)
+      : undefined;
 
   if (regime !== undefined && !definition.expectedRegimes.includes(regime)) {
     failures.push(
@@ -254,6 +257,8 @@ function numericalSampleFailure(
   definition: ValidationCaseDefinition,
   previous: ValidationSample | undefined,
 ): string | undefined {
+  const nonFiniteValueCount = sample.density.nonFiniteValueCount ?? 0;
+  const nonPositiveValueCount = sample.density.nonPositiveValueCount ?? 0;
   const values = [
     sample.step,
     sample.flowThroughTime,
@@ -263,6 +268,8 @@ function numericalSampleFailure(
     sample.density.minimum,
     sample.density.maximum,
     sample.density.mean,
+    nonFiniteValueCount,
+    nonPositiveValueCount,
     sample.upstreamReflection,
     sample.fieldResidual,
     sample.symmetryError,
@@ -272,6 +279,18 @@ function numericalSampleFailure(
   ];
   if (values.some((value) => !Number.isFinite(value))) {
     return `Case ${definition.id} became unavailable at step ${sample.step}: a diagnostic was non-finite.`;
+  }
+  if (!Number.isInteger(nonFiniteValueCount) || nonFiniteValueCount < 0) {
+    return `Case ${definition.id} became unavailable at step ${sample.step}: non-finite value count ${nonFiniteValueCount} was invalid.`;
+  }
+  if (!Number.isInteger(nonPositiveValueCount) || nonPositiveValueCount < 0) {
+    return `Case ${definition.id} became unavailable at step ${sample.step}: non-positive density count ${nonPositiveValueCount} was invalid.`;
+  }
+  if (nonFiniteValueCount > 0) {
+    return `Case ${definition.id} became unavailable at step ${sample.step}: ${nonFiniteValueCount} field values were non-finite.`;
+  }
+  if (nonPositiveValueCount > 0) {
+    return `Case ${definition.id} became unavailable at step ${sample.step}: ${nonPositiveValueCount} density values were non-positive.`;
   }
   if (sample.density.minimum <= 0) {
     return `Case ${definition.id} became unavailable at step ${sample.step}: minimum density ${sample.density.minimum} was not positive.`;
@@ -314,7 +333,9 @@ function calculateMetrics(
   }
 
   const meanDensity = mean(samples.map((sample) => sample.density.mean));
-  const densityDrift = Math.abs(meanDensity - definition.health.targetDensity);
+  const densityDrift = formatNumber(
+    Math.abs(meanDensity - definition.health.targetDensity),
+  );
   if (densityDrift > definition.health.maximumMeanDensityDrift) {
     caseFailures.push(
       `Case ${definition.id} mean density drift ${densityDrift} exceeded ${definition.health.maximumMeanDensityDrift}.`,
@@ -344,10 +365,26 @@ function calculateMetrics(
   }
 
   const measured: Partial<Record<ObservableMetric, number>> = {
+    densityMinimum: Math.min(...samples.map((sample) => sample.density.minimum)),
+    densityMaximum: Math.max(...samples.map((sample) => sample.density.maximum)),
     meanDensity,
+    meanDensityDrift: densityDrift,
+    nonFiniteValueCount: samples.reduce(
+      (total, sample) => total + (sample.density.nonFiniteValueCount ?? 0),
+      0,
+    ),
+    nonPositiveDensityCount: samples.reduce(
+      (total, sample) => total + (sample.density.nonPositiveValueCount ?? 0),
+      0,
+    ),
     fluxResidual,
     upstreamReflection,
+    fieldResidual: Math.max(...samples.map((sample) => Math.abs(sample.fieldResidual))),
+    symmetryError: Math.max(...samples.map((sample) => Math.abs(sample.symmetryError))),
     meanDragCoefficient: mean(samples.map((sample) => sample.dragCoefficient)),
+    dragRelativeVariation: relativeVariation(
+      samples.map((sample) => sample.dragCoefficient),
+    ),
     liftRms: rootMeanSquare(samples.map((sample) => sample.liftCoefficient)),
   };
   const periodic = analyseLiftSignal([warmUpEnd, ...samples], liftThresholds(definition));
@@ -416,15 +453,22 @@ function expectationEvidence(
 
 function classify(
   definition: ValidationCaseDefinition,
-  samples: readonly ValidationSample[],
+  steadySamples: readonly ValidationSample[],
+  periodicSamples: readonly ValidationSample[],
 ): FlowRegime {
-  if (samples.length === 0) {
+  if (steadySamples.length === 0) {
     return "developing";
   }
-  const maximumFieldResidual = Math.max(...samples.map((sample) => sample.fieldResidual));
-  const maximumSymmetryError = Math.max(...samples.map((sample) => sample.symmetryError));
-  const liftRms = rootMeanSquare(samples.map((sample) => sample.liftCoefficient));
-  const dragValues = samples.map((sample) => sample.dragCoefficient);
+  const maximumFieldResidual = Math.max(
+    ...steadySamples.map((sample) => sample.fieldResidual),
+  );
+  const maximumSymmetryError = Math.max(
+    ...steadySamples.map((sample) => sample.symmetryError),
+  );
+  const liftRms = rootMeanSquare(
+    steadySamples.map((sample) => sample.liftCoefficient),
+  );
+  const dragValues = steadySamples.map((sample) => sample.dragCoefficient);
   const meanDrag = mean(dragValues);
   const dragRelativeVariation =
     (Math.max(...dragValues) - Math.min(...dragValues)) /
@@ -437,7 +481,7 @@ function classify(
   ) {
     return "steady";
   }
-  if (analyseLiftSignal(samples, liftThresholds(definition)).stable) {
+  if (analyseLiftSignal(periodicSamples, liftThresholds(definition)).stable) {
     return "periodically-shedding";
   }
   return "unclassified";
@@ -473,6 +517,14 @@ function mean(values: readonly number[]): number {
 
 function rootMeanSquare(values: readonly number[]): number {
   return Math.sqrt(mean(values.map((value) => value * value)));
+}
+
+function relativeVariation(values: readonly number[]): number {
+  const average = mean(values);
+  return (
+    (Math.max(...values) - Math.min(...values)) /
+    Math.max(Math.abs(average), Number.EPSILON)
+  );
 }
 
 function expand(range: InclusiveRange, tolerance: number): InclusiveRange {
