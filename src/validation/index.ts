@@ -4,6 +4,12 @@ export {
   CPU_REFERENCE_BACKEND_IDENTITY,
   createCpuReferenceBackend,
 } from "./cpu-reference-backend.js";
+export type {
+  CpuReferenceRunCaseCommand,
+  CpuReferenceWorkerFactory,
+  CpuReferenceWorkerPort,
+  CpuReferenceWorkerResponse,
+} from "./cpu-reference-backend.js";
 export {
   parseSolverBackend,
   parseValidationSuite,

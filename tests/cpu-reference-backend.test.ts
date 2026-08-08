@@ -7,10 +7,11 @@ import {
   type ValidationCaseDefinition,
   type ValidationSample,
 } from "../src/validation/index.js";
+import { createInlineCpuReferenceWorker } from "./fixtures/inline-cpu-reference-worker.js";
 
 describe("CPU reference backend", () => {
   it("starts from uniform incoming flow and emits fixed-step finite diagnostics", async () => {
-    const backend = createCpuReferenceBackend();
+    const backend = createCpuReferenceBackend(createInlineCpuReferenceWorker);
     const reference = STEADY_RE20_VALIDATION_SUITE.cases[0]!;
     const definition: ValidationCaseDefinition = {
       ...reference,
@@ -112,7 +113,7 @@ describe("CPU reference backend", () => {
 
 async function lastSample(definition: ValidationCaseDefinition): Promise<ValidationSample> {
   let last: ValidationSample | undefined;
-  const backend = createCpuReferenceBackend();
+  const backend = createCpuReferenceBackend(createInlineCpuReferenceWorker);
   for await (const sample of backend.runCase(definition)) {
     last = sample;
   }

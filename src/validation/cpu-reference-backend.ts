@@ -31,44 +31,123 @@ export const CPU_REFERENCE_BACKEND_IDENTITY = Object.freeze({
   buildId: "ticket-02",
 } satisfies BackendIdentity);
 
-export function createCpuReferenceBackend(): SolverBackend {
+export interface CpuReferenceRunCaseCommand {
+  readonly type: "run-case";
+  readonly definition: ValidationCaseDefinition;
+}
+
+export type CpuReferenceWorkerResponse =
+  | { readonly type: "sample"; readonly sample: ValidationSample }
+  | { readonly type: "complete" }
+  | { readonly type: "error"; readonly message: string };
+
+export interface CpuReferenceWorkerPort {
+  onmessage: ((event: MessageEvent<CpuReferenceWorkerResponse>) => void) | null;
+  onerror: ((event: ErrorEvent) => void) | null;
+  postMessage(command: CpuReferenceRunCaseCommand): void;
+  terminate(): void;
+}
+
+export type CpuReferenceWorkerFactory = () => CpuReferenceWorkerPort;
+
+export function createCpuReferenceBackend(
+  workerFactory: CpuReferenceWorkerFactory = createBrowserCpuReferenceWorker,
+): SolverBackend {
   return {
     schemaVersion: VALIDATION_SCHEMA_VERSION,
     identity: CPU_REFERENCE_BACKEND_IDENTITY,
-    async *runCase(definition) {
-      validateReferenceConfiguration(definition);
-      const solver = new D2Q9TrtOpenCylinder(definition);
-      yield solver.diagnostic(0, 0, 0);
-
-      const stepsPerSample = exactStepCount(
-        (definition.protocol.sampleInterval * solver.cylinderDiameter) / LATTICE_SPEED,
-        "sample interval",
-      );
-      const sampleCount = exactStepCount(
-        (definition.protocol.warmUpFlowThroughTime +
-          definition.protocol.sampleFlowThroughTime) /
-          definition.protocol.sampleInterval,
-        "case duration",
-      );
-      let step = 0;
-      for (let sampleIndex = 1; sampleIndex <= sampleCount; sampleIndex += 1) {
-        let forceX = 0;
-        let forceY = 0;
-        for (let localStep = 0; localStep < stepsPerSample; localStep += 1) {
-          const force = solver.advance();
-          forceX += force.x;
-          forceY += force.y;
-          step += 1;
-        }
-        yield solver.diagnostic(
-          step,
-          sampleIndex * definition.protocol.sampleInterval,
-          forceX / stepsPerSample,
-          forceY / stepsPerSample,
-        );
-      }
+    runCase(definition) {
+      return runCaseInWorker(definition, workerFactory);
     },
   };
+}
+
+export async function* runCpuReferenceCase(
+  definition: ValidationCaseDefinition,
+): AsyncIterable<ValidationSample> {
+  validateReferenceConfiguration(definition);
+  const solver = new D2Q9TrtOpenCylinder(definition);
+  yield solver.diagnostic(0, 0, 0);
+
+  const stepsPerSample = exactStepCount(
+    (definition.protocol.sampleInterval * solver.cylinderDiameter) / LATTICE_SPEED,
+    "sample interval",
+  );
+  const sampleCount = exactStepCount(
+    (definition.protocol.warmUpFlowThroughTime +
+      definition.protocol.sampleFlowThroughTime) /
+      definition.protocol.sampleInterval,
+    "case duration",
+  );
+  let step = 0;
+  for (let sampleIndex = 1; sampleIndex <= sampleCount; sampleIndex += 1) {
+    let forceX = 0;
+    let forceY = 0;
+    for (let localStep = 0; localStep < stepsPerSample; localStep += 1) {
+      const force = solver.advance();
+      forceX += force.x;
+      forceY += force.y;
+      step += 1;
+    }
+    yield solver.diagnostic(
+      step,
+      sampleIndex * definition.protocol.sampleInterval,
+      forceX / stepsPerSample,
+      forceY / stepsPerSample,
+    );
+  }
+}
+
+async function* runCaseInWorker(
+  definition: ValidationCaseDefinition,
+  workerFactory: CpuReferenceWorkerFactory,
+): AsyncIterable<ValidationSample> {
+  const worker = workerFactory();
+  const queued: CpuReferenceWorkerResponse[] = [];
+  let resolveNext: ((response: CpuReferenceWorkerResponse) => void) | undefined;
+  const receive = (response: CpuReferenceWorkerResponse) => {
+    if (resolveNext !== undefined) {
+      const resolve = resolveNext;
+      resolveNext = undefined;
+      resolve(response);
+    } else {
+      queued.push(response);
+    }
+  };
+  const nextResponse = () => {
+    const response = queued.shift();
+    return response === undefined
+      ? new Promise<CpuReferenceWorkerResponse>((resolve) => {
+          resolveNext = resolve;
+        })
+      : Promise.resolve(response);
+  };
+
+  worker.onmessage = ({ data }) => receive(data);
+  worker.onerror = (event) =>
+    receive({ type: "error", message: event.message || "CPU reference Worker failed." });
+  worker.postMessage({ type: "run-case", definition });
+  try {
+    while (true) {
+      const response = await nextResponse();
+      if (response.type === "sample") {
+        yield response.sample;
+      } else if (response.type === "complete") {
+        return;
+      } else {
+        throw new Error(response.message);
+      }
+    }
+  } finally {
+    worker.terminate();
+  }
+}
+
+function createBrowserCpuReferenceWorker(): CpuReferenceWorkerPort {
+  return new Worker(new URL("./cpu-reference-worker.js", import.meta.url), {
+    type: "module",
+    name: "cfd-visualise-cpu-reference",
+  });
 }
 
 function validateReferenceConfiguration(definition: ValidationCaseDefinition): void {

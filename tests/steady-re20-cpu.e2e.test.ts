@@ -6,6 +6,7 @@ import {
   parseValidationManifest,
   runValidation,
 } from "../src/validation/index.js";
+import { createInlineCpuReferenceWorker } from "./fixtures/inline-cpu-reference-worker.js";
 
 describe("steady Reynolds 20 CPU reference validation", () => {
   it(
@@ -13,7 +14,7 @@ describe("steady Reynolds 20 CPU reference validation", () => {
     async () => {
       const manifest = await runValidation(
         STEADY_RE20_VALIDATION_SUITE,
-        createCpuReferenceBackend(),
+        createCpuReferenceBackend(createInlineCpuReferenceWorker),
       );
 
       expect(parseValidationManifest(manifest)).toEqual(manifest);
@@ -72,7 +73,7 @@ describe("steady Reynolds 20 CPU reference validation", () => {
           },
         ],
       },
-      createCpuReferenceBackend(),
+      createCpuReferenceBackend(createInlineCpuReferenceWorker),
     );
 
     expect(manifest).toMatchObject({
