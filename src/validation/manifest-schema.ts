@@ -26,7 +26,7 @@ const {
   schemaVersion,
   text,
 } = primitives;
-const { validateNumericalConfiguration, validateRange } =
+const { validateClassificationThresholds, validateNumericalConfiguration, validateRange } =
   createValidationStructureValidators(
     primitives,
     (message) => new ValidationManifestSchemaError(message),
@@ -209,32 +209,7 @@ function validateDefinition(value: unknown, reynoldsNumber: number, caseIndex: n
   nonNegative(health.maximumMeanDensityDrift, `Case ${caseIndex} density drift`);
   nonNegative(health.maximumFluxResidual, `Case ${caseIndex} flux residual`);
   nonNegative(health.maximumUpstreamReflection, `Case ${caseIndex} upstream reflection`);
-  const classification = record(
-    definition.classification,
-    `Case ${caseIndex} classification thresholds`,
-  );
-  nonNegative(
-    classification.maximumSteadyFieldResidual,
-    `Case ${caseIndex} steady field residual`,
-  );
-  nonNegative(
-    classification.maximumSteadySymmetryError,
-    `Case ${caseIndex} steady symmetry error`,
-  );
-  nonNegative(classification.maximumSteadyLiftRms, `Case ${caseIndex} steady lift RMS`);
-  nonNegative(
-    classification.maximumSteadyDragRelativeVariation,
-    `Case ${caseIndex} steady drag variation`,
-  );
-  positive(classification.minimumPeriodicCycles, `Case ${caseIndex} periodic cycles`);
-  nonNegative(
-    classification.maximumPeriodicFrequencyVariation,
-    `Case ${caseIndex} periodic frequency variation`,
-  );
-  nonNegative(
-    classification.maximumPeriodicAmplitudeVariation,
-    `Case ${caseIndex} periodic amplitude variation`,
-  );
+  validateClassificationThresholds(definition.classification, `Case ${caseIndex}`);
 }
 
 function validateMetric(value: unknown, location: string): void {

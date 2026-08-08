@@ -14,6 +14,11 @@ const OBSERVABLE_METRICS = [
   "meanDragCoefficient",
   "dragRelativeVariation",
   "liftRms",
+  "periodicCycleCount",
+  "dominantFrequency",
+  "frequencyVariation",
+  "amplitudeVariation",
+  "frequencyUncertainty",
   "recirculationLength",
   "strouhalNumber",
   "meanDensity",
@@ -45,7 +50,7 @@ const {
   text,
   versionedRecord,
 } = primitives;
-const { validateNumericalConfiguration, validateRange } =
+const { validateClassificationThresholds, validateNumericalConfiguration, validateRange } =
   createValidationStructureValidators(
     primitives,
     (message) => new ValidationContractSchemaError(message),
@@ -110,7 +115,7 @@ function validateCaseDefinition(value: unknown, index: number): void {
   );
   validateProtocol(definition.protocol, location);
   validateHealth(definition.health, location);
-  validateClassification(definition.classification, location);
+  validateClassificationThresholds(definition.classification, location);
 
   const expectations = array(definition.expectations, `${location} expectations`);
   if (expectations.length === 0) {
@@ -156,32 +161,6 @@ function validateHealth(value: unknown, caseLocation: string): void {
   nonNegative(health.maximumMeanDensityDrift, `${caseLocation} density drift`);
   nonNegative(health.maximumFluxResidual, `${caseLocation} flux residual`);
   nonNegative(health.maximumUpstreamReflection, `${caseLocation} upstream reflection`);
-}
-
-function validateClassification(value: unknown, caseLocation: string): void {
-  const classification = record(value, `${caseLocation} classification thresholds`);
-  nonNegative(
-    classification.maximumSteadyFieldResidual,
-    `${caseLocation} steady field residual`,
-  );
-  nonNegative(
-    classification.maximumSteadySymmetryError,
-    `${caseLocation} steady symmetry error`,
-  );
-  nonNegative(classification.maximumSteadyLiftRms, `${caseLocation} steady lift RMS`);
-  nonNegative(
-    classification.maximumSteadyDragRelativeVariation,
-    `${caseLocation} steady drag variation`,
-  );
-  positive(classification.minimumPeriodicCycles, `${caseLocation} periodic cycles`);
-  nonNegative(
-    classification.maximumPeriodicFrequencyVariation,
-    `${caseLocation} periodic frequency variation`,
-  );
-  nonNegative(
-    classification.maximumPeriodicAmplitudeVariation,
-    `${caseLocation} periodic amplitude variation`,
-  );
 }
 
 function validateReconciliationDefinition(value: unknown, index: number): void {

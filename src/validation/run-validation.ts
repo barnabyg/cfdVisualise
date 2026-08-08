@@ -388,6 +388,11 @@ function calculateMetrics(
     liftRms: rootMeanSquare(samples.map((sample) => sample.liftCoefficient)),
   };
   const periodic = analyseLiftSignal([warmUpEnd, ...samples], liftThresholds(definition));
+  assignFiniteMetric(measured, "periodicCycleCount", periodic.cycles);
+  assignFiniteMetric(measured, "dominantFrequency", periodic.dominantFrequency);
+  assignFiniteMetric(measured, "frequencyVariation", periodic.frequencyVariation);
+  assignFiniteMetric(measured, "amplitudeVariation", periodic.amplitudeVariation);
+  assignFiniteMetric(measured, "frequencyUncertainty", periodic.frequencyUncertainty);
   if (periodic.stable) {
     measured.strouhalNumber = periodic.strouhalNumber;
   }
@@ -482,6 +487,8 @@ function classify(
     return "steady";
   }
   if (analyseLiftSignal(periodicSamples, liftThresholds(definition)).stable) {
+    // Regime is measured flow behaviour; published quantitative ranges determine
+    // case pass/fail through metric evidence without relabelling periodic shedding.
     return "periodically-shedding";
   }
   return "unclassified";
@@ -493,6 +500,7 @@ function liftThresholds(definition: ValidationCaseDefinition) {
       definition.classification.minimumPeriodicCycles,
       definition.protocol.minimumStableCycles ?? 0,
     ),
+    minimumAmplitude: definition.classification.minimumPeriodicAmplitude ?? Number.EPSILON,
     maximumFrequencyVariation: definition.classification.maximumPeriodicFrequencyVariation,
     maximumAmplitudeVariation: definition.classification.maximumPeriodicAmplitudeVariation,
   };
@@ -537,6 +545,16 @@ function inRange(value: number, range: InclusiveRange): boolean {
 
 function sortedRecord(record: Readonly<Record<string, string>>): Readonly<Record<string, string>> {
   return Object.fromEntries(Object.entries(record).sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function assignFiniteMetric(
+  measured: Partial<Record<ObservableMetric, number>>,
+  metric: ObservableMetric,
+  value: number,
+): void {
+  if (Number.isFinite(value)) {
+    measured[metric] = value;
+  }
 }
 
 function formatNumber(value: number): number {

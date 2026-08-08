@@ -6,13 +6,32 @@ export function createValidationStructureValidators(
   primitives: SchemaPrimitives,
   createError: SchemaErrorFactory,
 ) {
-  const { finite, oneOf, positive, record, text } = primitives;
+  const { finite, nonNegative, oneOf, positive, record, text } = primitives;
 
   function validateNumericalConfiguration(value: unknown, location: string): void {
     const configuration = record(value, location);
     text(configuration.backendId, `${location} backend id`);
     text(configuration.qualityTier, `${location} quality tier`);
     oneOf(configuration.precision, ["float32", "float64", "mixed"], `${location} precision`);
+    if (configuration.latticeSpeed !== undefined) {
+      const latticeSpeed = positive(configuration.latticeSpeed, `${location} lattice speed`);
+      if (latticeSpeed >= 1 / Math.sqrt(3)) {
+        throw createError(`${location} lattice speed must remain below the D2Q9 sound speed.`);
+      }
+    }
+    if (configuration.initialTransversePerturbation !== undefined) {
+      nonNegative(
+        configuration.initialTransversePerturbation,
+        `${location} initial transverse perturbation`,
+      );
+    }
+    if (configuration.upstreamReflectionMode !== undefined) {
+      oneOf(
+        configuration.upstreamReflectionMode,
+        ["velocity-vector-about-mean", "streamwise-from-inlet"],
+        `${location} upstream reflection mode`,
+      );
+    }
     oneOf(configuration.collision, ["D2Q9 TRT"], `${location} collision`);
 
     const boundaries = record(configuration.boundaries, `${location} boundaries`);
@@ -44,6 +63,25 @@ export function createValidationStructureValidators(
     finite(cylinder.offsetY, `${location} cylinder y offset`);
   }
 
+  function validateClassificationThresholds(value: unknown, location: string): void {
+    const classification = record(value, `${location} classification thresholds`);
+    const nonNegativeThresholds = [
+      ["maximumSteadyFieldResidual", "steady field residual"],
+      ["maximumSteadySymmetryError", "steady symmetry error"],
+      ["maximumSteadyLiftRms", "steady lift RMS"],
+      ["maximumSteadyDragRelativeVariation", "steady drag variation"],
+      ["maximumPeriodicFrequencyVariation", "periodic frequency variation"],
+      ["maximumPeriodicAmplitudeVariation", "periodic amplitude variation"],
+    ] as const;
+    for (const [field, label] of nonNegativeThresholds) {
+      primitives.nonNegative(classification[field], `${location} ${label}`);
+    }
+    positive(classification.minimumPeriodicCycles, `${location} periodic cycles`);
+    if (classification.minimumPeriodicAmplitude !== undefined) {
+      positive(classification.minimumPeriodicAmplitude, `${location} periodic amplitude`);
+    }
+  }
+
   function validateRange(value: unknown, location: string): void {
     const range = record(value, location);
     const minimum = finite(range.minimum, `${location} minimum`);
@@ -53,5 +91,9 @@ export function createValidationStructureValidators(
     }
   }
 
-  return { validateNumericalConfiguration, validateRange };
+  return {
+    validateClassificationThresholds,
+    validateNumericalConfiguration,
+    validateRange,
+  };
 }

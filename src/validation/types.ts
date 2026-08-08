@@ -55,6 +55,11 @@ export interface NumericalConfiguration {
   readonly backendId: string;
   readonly qualityTier: string;
   readonly precision: "float32" | "float64" | "mixed";
+  readonly latticeSpeed?: number;
+  readonly initialTransversePerturbation?: number;
+  readonly upstreamReflectionMode?:
+    | "velocity-vector-about-mean"
+    | "streamwise-from-inlet";
   readonly collision: "D2Q9 TRT";
   readonly boundaries: BoundaryConfiguration;
   readonly domain: DomainConfiguration;
@@ -82,6 +87,7 @@ export interface ClassificationThresholds {
   readonly maximumSteadyLiftRms: number;
   readonly maximumSteadyDragRelativeVariation: number;
   readonly minimumPeriodicCycles: number;
+  readonly minimumPeriodicAmplitude?: number;
   readonly maximumPeriodicFrequencyVariation: number;
   readonly maximumPeriodicAmplitudeVariation: number;
 }
@@ -92,6 +98,11 @@ export type ObservableMetric =
   | "meanDragCoefficient"
   | "dragRelativeVariation"
   | "liftRms"
+  | "periodicCycleCount"
+  | "dominantFrequency"
+  | "frequencyVariation"
+  | "amplitudeVariation"
+  | "frequencyUncertainty"
   | "recirculationLength"
   | "strouhalNumber"
   | "meanDensity"

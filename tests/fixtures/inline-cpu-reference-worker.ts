@@ -18,6 +18,7 @@ export function createInlineCpuReferenceWorker(): CpuReferenceWorkerPort {
               return;
             }
             dispatch({ type: "sample", sample });
+            await new Promise<void>((resolve) => setTimeout(resolve, 0));
           }
           dispatch({ type: "complete" });
         } catch (error) {
