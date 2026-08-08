@@ -340,22 +340,14 @@ class D2Q9TrtOpenCylinder {
 
   private collide(): void {
     const equilibriumValues = new Float64Array(9);
+    const reconstructed = { rho: 0, ux: 0, uy: 0 };
     for (let cell = 0; cell < this.cellCount; cell += 1) {
       if (this.solid[cell] === 1) {
         continue;
       }
       const base = cell * 9;
-      let rho = 0;
-      let momentumX = 0;
-      let momentumY = 0;
-      for (let direction = 0; direction < 9; direction += 1) {
-        const value = this.populations[base + direction]!;
-        rho += value;
-        momentumX += value * CX[direction]!;
-        momentumY += value * CY[direction]!;
-      }
-      const ux = momentumX / rho;
-      const uy = momentumY / rho;
+      reconstructMacroscopic(this.populations, base, reconstructed);
+      const { rho, ux, uy } = reconstructed;
       this.previousStepVelocityX[cell] = ux;
       this.previousStepVelocityY[cell] = uy;
       for (let direction = 0; direction < 9; direction += 1) {
@@ -666,6 +658,16 @@ function macroscopic(
   populations: Float64Array,
   base: number,
 ): { readonly rho: number; readonly ux: number; readonly uy: number } {
+  const reconstructed = { rho: 0, ux: 0, uy: 0 };
+  reconstructMacroscopic(populations, base, reconstructed);
+  return reconstructed;
+}
+
+function reconstructMacroscopic(
+  populations: Float64Array,
+  base: number,
+  result: { rho: number; ux: number; uy: number },
+): void {
   let rho = 0;
   let momentumX = 0;
   let momentumY = 0;
@@ -675,7 +677,9 @@ function macroscopic(
     momentumX += value * CX[direction]!;
     momentumY += value * CY[direction]!;
   }
-  return { rho, ux: momentumX / rho, uy: momentumY / rho };
+  result.rho = rho;
+  result.ux = momentumX / rho;
+  result.uy = momentumY / rho;
 }
 
 function nonEquilibriumStress(
