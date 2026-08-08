@@ -30,35 +30,7 @@ describe("cross-run reconciliation", () => {
         },
       ],
     };
-    const backend: SolverBackend = {
-      schemaVersion: "1",
-      identity: {
-        schemaVersion: "1",
-        id: "cpu-test",
-        kind: "cpu-worker",
-        solver: "test TRT/BFL",
-        solverVersion: "1.0.0",
-        buildId: "test-build",
-      },
-      async *runCase(definition) {
-        const drag = definition.id === baseline.id ? 2 : 2.03;
-        for (let step = 0; step <= 2; step += 1) {
-          yield {
-            step,
-            flowThroughTime: step,
-            domainMass: 100,
-            inletFlux: 1,
-            outletFlux: 1,
-            density: { minimum: 0.99, maximum: 1.01, mean: 1 },
-            upstreamReflection: 0,
-            fieldResidual: 0.0001,
-            symmetryError: 0.0001,
-            dragCoefficient: drag,
-            liftCoefficient: 0,
-          };
-        }
-      },
-    };
+    const backend = steadyBackend(baseline.id, 2.03);
 
     const manifest = await runValidation(suite, backend);
 
@@ -71,6 +43,9 @@ describe("cross-run reconciliation", () => {
     expect(manifest.reconciliations[0]?.failures[0]).toContain("re20-grid-48");
     expect(manifest.reconciliations[0]?.failures[0]).toContain("0.015");
     expect(manifest.reconciliations[0]?.failures[0]).toContain("0.01");
+    expect(manifest.reconciliations[0]?.failures[0]).toContain(
+      "Grid reconciliation re20-grid",
+    );
     expect(manifest.reconciliations[0]?.comparisons[0]).toMatchObject({
       comparisonCaseId: "re20-grid-48",
       metrics: {
@@ -156,7 +131,157 @@ describe("cross-run reconciliation", () => {
       failures: [expect.stringContaining("identical scenario, protocol")],
     });
   });
+
+  it("identifies cylinder placement as the cause of a failed comparison", async () => {
+    const centred = steadyCase("re20-centred", 32);
+    const shifted: ValidationCaseDefinition = {
+      ...steadyCase("re20-shifted", 32),
+      configuration: {
+        ...centred.configuration,
+        cylinder: {
+          ...centred.configuration.cylinder,
+          offsetX: 0.5,
+        },
+      },
+    };
+    const suite: ValidationSuite = {
+      schemaVersion: "1",
+      id: "placement-reconciliation",
+      metricVersions: { drag: "1" },
+      cases: [centred, shifted],
+      reconciliations: [
+        {
+          schemaVersion: "1",
+          id: "re20-placement",
+          kind: "cylinder-placement",
+          baselineCaseId: centred.id,
+          comparisonCaseIds: [shifted.id],
+          maximumRelativeChange: { meanDragCoefficient: 0.01 },
+          requireSameRegime: true,
+        },
+      ],
+    };
+    const backend = steadyBackend(centred.id, 2.03);
+
+    const manifest = await runValidation(suite, backend);
+
+    expect(manifest.reconciliations[0]?.failures).toEqual([
+      expect.stringContaining(
+        "Cylinder-placement reconciliation re20-placement",
+      ),
+    ]);
+  });
+
+  it("reports measured and allowed metric deltas when an input case fails", async () => {
+    const baseline = steadyCase("re20-baseline", 32);
+    const comparison = steadyCase("re20-comparison", 48);
+    const manifest = await runValidation(
+      reconciliationSuite(baseline, comparison, {
+        meanDragCoefficient: 0.01,
+      }),
+      steadyBackend(baseline.id, 2.5),
+    );
+
+    expect(manifest.reconciliations[0]?.failures).toEqual([
+      expect.stringContaining("meanDragCoefficient measured delta 0.25"),
+    ]);
+    expect(manifest.reconciliations[0]?.failures[0]).toContain(
+      "allowed delta 0.01",
+    );
+  });
+
+  it("reports an unavailable measured delta with its declared metric gate", async () => {
+    const baseline = steadyCase("re20-baseline", 32);
+    const comparison = steadyCase("re20-comparison", 48);
+    const manifest = await runValidation(
+      reconciliationSuite(baseline, comparison, {
+        recirculationLength: 0.02,
+      }),
+      steadyBackend(baseline.id, 2),
+    );
+
+    expect(manifest.reconciliations[0]?.failures).toEqual([
+      "Grid reconciliation re20-test: recirculationLength measured delta unavailable between re20-baseline and re20-comparison; allowed delta 0.02.",
+    ]);
+  });
+
+  it("reports the intended configuration pair when the baseline is missing", async () => {
+    const baseline = steadyCase("re20-baseline", 32);
+    const comparison = steadyCase("re20-comparison", 48);
+    const suite = reconciliationSuite(baseline, comparison, {
+      meanDragCoefficient: 0.01,
+    });
+    const manifest = await runValidation(
+      { ...suite, cases: [comparison] },
+      steadyBackend(baseline.id, 2),
+    );
+
+    expect(manifest.reconciliations[0]?.failures).toEqual([
+      expect.stringContaining(
+        "configuration pair re20-baseline and re20-comparison",
+      ),
+    ]);
+  });
 });
+
+function reconciliationSuite(
+  baseline: ValidationCaseDefinition,
+  comparison: ValidationCaseDefinition,
+  maximumRelativeChange: ValidationSuite["reconciliations"][number]["maximumRelativeChange"],
+): ValidationSuite {
+  return {
+    schemaVersion: "1",
+    id: "reconciliation-test",
+    metricVersions: { drag: "1", recirculationLength: "1" },
+    cases: [baseline, comparison],
+    reconciliations: [
+      {
+        schemaVersion: "1",
+        id: "re20-test",
+        kind: "grid",
+        baselineCaseId: baseline.id,
+        comparisonCaseIds: [comparison.id],
+        maximumRelativeChange,
+        requireSameRegime: true,
+      },
+    ],
+  };
+}
+
+function steadyBackend(
+  baselineCaseId: string,
+  comparisonDrag: number,
+): SolverBackend {
+  return {
+    schemaVersion: "1",
+    identity: {
+      schemaVersion: "1",
+      id: "cpu-test",
+      kind: "cpu-worker",
+      solver: "test TRT/BFL",
+      solverVersion: "1.0.0",
+      buildId: "test-build",
+    },
+    async *runCase(definition) {
+      const drag = definition.id === baselineCaseId ? 2 : comparisonDrag;
+      for (let step = 0; step <= 2; step += 1) {
+        yield {
+          step,
+          flowThroughTime: step,
+          domainMass: 100,
+          inletFlux: 1,
+          outletFlux: 1,
+          density: { minimum: 0.99, maximum: 1.01, mean: 1 },
+          upstreamReflection: 0,
+          fieldResidual: 0.0001,
+          symmetryError: 0.0001,
+          dragCoefficient: drag,
+          liftCoefficient: 0,
+        };
+      }
+    },
+  };
+}
 
 function steadyCase(id: string, cellsPerDiameter: number): ValidationCaseDefinition {
   return {

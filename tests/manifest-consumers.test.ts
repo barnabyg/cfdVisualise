@@ -257,6 +257,7 @@ function sensitivityCase(
     caseId,
     configuration: {
       ...baseline.configuration,
+      qualityTier: `sensitivity-${caseId}`,
       domain: {
         ...baseline.configuration.domain,
         upstreamDiameters:

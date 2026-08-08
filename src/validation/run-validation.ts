@@ -56,11 +56,19 @@ function reconcile(
 ): ReconciliationManifest {
   const failures: string[] = [];
   const comparisons: ReconciliationManifest["comparisons"][number][] = [];
+  const label = reconciliationLabel(definition);
   const byId = new Map(cases.map((result) => [result.caseId, result]));
   const baseline = byId.get(definition.baselineCaseId);
   if (baseline === undefined) {
+    const intendedComparisons =
+      definition.comparisonCaseIds.length === 0
+        ? ["undeclared comparison"]
+        : definition.comparisonCaseIds;
     failures.push(
-      `Reconciliation ${definition.id} has no baseline case ${definition.baselineCaseId}.`,
+      ...intendedComparisons.map(
+        (comparisonId) =>
+          `${label} has no baseline case ${definition.baselineCaseId} for configuration pair ${definition.baselineCaseId} and ${comparisonId}; ${metricGateSummary(definition, {})}.`,
+      ),
     );
   }
 
@@ -72,7 +80,7 @@ function reconcile(
     > = {};
     const comparison = byId.get(comparisonId);
     if (comparison === undefined) {
-      const failure = `Reconciliation ${definition.id} has no comparison case ${comparisonId}.`;
+      const failure = `${label} has no comparison case ${comparisonId} for configuration pair ${definition.baselineCaseId} and ${comparisonId}; ${metricGateSummary(definition, {})}.`;
       failures.push(failure);
       comparisons.push({
         comparisonCaseId: comparisonId,
@@ -90,45 +98,51 @@ function reconcile(
       });
       continue;
     }
+    const missingMetricFailures: string[] = [];
+    const thresholdFailures: string[] = [];
+    for (const [metric, maximumChange] of Object.entries(
+      definition.maximumRelativeChange,
+    )) {
+      if (maximumChange === undefined) {
+        continue;
+      }
+      const baselineValue = baseline.metrics[metric]?.measured;
+      const comparisonValue = comparison.metrics[metric]?.measured;
+      if (baselineValue === undefined || comparisonValue === undefined) {
+        missingMetricFailures.push(
+          `${label}: ${metric} measured delta unavailable between ${baseline.caseId} and ${comparison.caseId}; allowed delta ${maximumChange}.`,
+        );
+        continue;
+      }
+      const relativeChange =
+        Math.abs(comparisonValue - baselineValue) /
+        Math.max(Math.abs(baselineValue), Number.EPSILON);
+      const status = relativeChange <= maximumChange ? "pass" : "fail";
+      metricComparisons[metric] = {
+        baseline: baselineValue,
+        comparison: comparisonValue,
+        relativeChange: formatNumber(relativeChange),
+        maximumRelativeChange: maximumChange,
+        status,
+      };
+      if (status === "fail") {
+        thresholdFailures.push(
+          `${label}: ${metric} changed by ${formatNumber(relativeChange)} between ${baseline.caseId} (${baselineValue}) and ${comparison.caseId} (${comparisonValue}); maximum ${maximumChange}.`,
+        );
+      }
+    }
+
     if (baseline.status !== "pass" || comparison.status !== "pass") {
       comparisonFailures.push(
-        `Reconciliation ${definition.id} cannot compare ${baseline.caseId} with ${comparison.caseId} because an input case failed.`,
+        `${label} cannot compare ${baseline.caseId} with ${comparison.caseId} because an input case failed; ${metricGateSummary(definition, metricComparisons)}.`,
       );
     } else {
       if (definition.requireSameRegime && baseline.regime !== comparison.regime) {
         comparisonFailures.push(
-          `Reconciliation ${definition.id} changed regime from ${baseline.regime} in ${baseline.caseId} to ${comparison.regime} in ${comparison.caseId}.`,
+          `${label} changed regime from ${baseline.regime} in ${baseline.caseId} to ${comparison.regime} in ${comparison.caseId}; ${metricGateSummary(definition, metricComparisons)}.`,
         );
       }
-      for (const [metric, maximumChange] of Object.entries(definition.maximumRelativeChange)) {
-        if (maximumChange === undefined) {
-          continue;
-        }
-        const baselineValue = baseline.metrics[metric]?.measured;
-        const comparisonValue = comparison.metrics[metric]?.measured;
-        if (baselineValue === undefined || comparisonValue === undefined) {
-          comparisonFailures.push(
-            `Reconciliation ${definition.id} requires ${metric} from ${baseline.caseId} and ${comparison.caseId}.`,
-          );
-          continue;
-        }
-        const relativeChange =
-          Math.abs(comparisonValue - baselineValue) /
-          Math.max(Math.abs(baselineValue), Number.EPSILON);
-        const status = relativeChange <= maximumChange ? "pass" : "fail";
-        metricComparisons[metric] = {
-          baseline: baselineValue,
-          comparison: comparisonValue,
-          relativeChange: formatNumber(relativeChange),
-          maximumRelativeChange: maximumChange,
-          status,
-        };
-        if (status === "fail") {
-          comparisonFailures.push(
-            `Reconciliation ${definition.id}: ${metric} changed by ${formatNumber(relativeChange)} between ${baseline.caseId} (${baselineValue}) and ${comparison.caseId} (${comparisonValue}); maximum ${maximumChange}.`,
-          );
-        }
-      }
+      comparisonFailures.push(...missingMetricFailures, ...thresholdFailures);
     }
     failures.push(...comparisonFailures);
     comparisons.push({
@@ -149,6 +163,27 @@ function reconcile(
     status: failures.length === 0 ? "pass" : "fail",
     failures,
   };
+}
+
+function reconciliationLabel(definition: ReconciliationDefinition): string {
+  const cause =
+    definition.kind === "cylinder-placement"
+      ? "Cylinder-placement"
+      : `${definition.kind[0]?.toUpperCase()}${definition.kind.slice(1)}`;
+  return `${cause} reconciliation ${definition.id}`;
+}
+
+function metricGateSummary(
+  definition: ReconciliationDefinition,
+  metrics: ReconciliationManifest["comparisons"][number]["metrics"],
+): string {
+  return Object.entries(definition.maximumRelativeChange)
+    .filter((entry): entry is [string, number] => entry[1] !== undefined)
+    .map(([metric, maximumChange]) => {
+      const measuredDelta = metrics[metric]?.relativeChange;
+      return `${metric} measured delta ${measuredDelta ?? "unavailable"}; allowed delta ${maximumChange}`;
+    })
+    .join(", ");
 }
 
 async function runCase(
