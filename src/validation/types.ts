@@ -87,13 +87,21 @@ export interface ClassificationThresholds {
 }
 
 export type ObservableMetric =
+  | "densityMinimum"
+  | "densityMaximum"
   | "meanDragCoefficient"
+  | "dragRelativeVariation"
   | "liftRms"
   | "recirculationLength"
   | "strouhalNumber"
   | "meanDensity"
+  | "meanDensityDrift"
+  | "nonFiniteValueCount"
+  | "nonPositiveDensityCount"
   | "fluxResidual"
-  | "upstreamReflection";
+  | "upstreamReflection"
+  | "fieldResidual"
+  | "symmetryError";
 
 export interface MetricExpectation {
   readonly metric: ObservableMetric;
@@ -149,6 +157,8 @@ export interface DensitySample {
   readonly minimum: number;
   readonly maximum: number;
   readonly mean: number;
+  readonly nonFiniteValueCount?: number;
+  readonly nonPositiveValueCount?: number;
 }
 
 export interface ValidationSample {

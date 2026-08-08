@@ -9,13 +9,21 @@ import {
 } from "./types.js";
 
 const OBSERVABLE_METRICS = [
+  "densityMinimum",
+  "densityMaximum",
   "meanDragCoefficient",
+  "dragRelativeVariation",
   "liftRms",
   "recirculationLength",
   "strouhalNumber",
   "meanDensity",
+  "meanDensityDrift",
+  "nonFiniteValueCount",
+  "nonPositiveDensityCount",
   "fluxResidual",
   "upstreamReflection",
+  "fieldResidual",
+  "symmetryError",
 ] as const;
 
 export class ValidationContractSchemaError extends Error {

@@ -1,5 +1,16 @@
 export { runValidation } from "./run-validation.js";
 export {
+  CPU_REFERENCE_BOUNDARY_PRECEDENCE,
+  CPU_REFERENCE_BACKEND_IDENTITY,
+  createCpuReferenceBackend,
+} from "./cpu-reference-backend.js";
+export type {
+  CpuReferenceRunCaseCommand,
+  CpuReferenceWorkerFactory,
+  CpuReferenceWorkerPort,
+  CpuReferenceWorkerResponse,
+} from "./cpu-reference-backend.js";
+export {
   parseSolverBackend,
   parseValidationSuite,
   ValidationContractSchemaError,
@@ -30,6 +41,7 @@ export {
   createReferenceValidationSuite,
   REFERENCE_CASE_CATALOGUE,
 } from "./reference-catalogue.js";
+export { STEADY_RE20_VALIDATION_SUITE } from "./steady-re20-reference.js";
 export type * from "./reference-catalogue.js";
 export type * from "./manifest-consumers.js";
 export type * from "./metrics.js";
