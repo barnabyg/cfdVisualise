@@ -126,6 +126,25 @@ function validateCaseDefinition(value: unknown, index: number): void {
   expectations.forEach((expectation, expectationIndex) => {
     const metric = record(expectation, `${location} expectation ${expectationIndex}`);
     choice(metric.metric, OBSERVABLE_METRICS, `${location} expectation metric`);
+    if (metric.applicableRegimes !== undefined) {
+      const applicableRegimes = array(
+        metric.applicableRegimes,
+        `${location} expectation applicable regimes`,
+      );
+      if (applicableRegimes.length === 0) {
+        throw new ValidationContractSchemaError(
+          `${location} expectation needs at least one applicable regime.`,
+        );
+      }
+      applicableRegimes.forEach((regime) =>
+        choice(regime, FLOW_REGIMES, `${location} expectation applicable regime`),
+      );
+      if (applicableRegimes.some((regime) => !expectedRegimes.includes(regime))) {
+        throw new ValidationContractSchemaError(
+          `${location} expectation applies outside the case's expected regimes.`,
+        );
+      }
+    }
     validateRange(metric.range, `${location} expectation range`);
     nonNegative(metric.tolerance, `${location} expectation tolerance`);
     const sources = array(metric.sources, `${location} expectation sources`);

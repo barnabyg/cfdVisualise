@@ -85,6 +85,30 @@ describe("validation runner", () => {
       },
       { ...validCase, expectations: "none" },
       { ...validCase, expectations: [] },
+      {
+        ...validCase,
+        expectations: [
+          { ...validCase.expectations[0]!, applicableRegimes: [] },
+        ],
+      },
+      {
+        ...validCase,
+        expectations: [
+          {
+            ...validCase.expectations[0]!,
+            applicableRegimes: ["mystery-flow"],
+          },
+        ],
+      },
+      {
+        ...validCase,
+        expectations: [
+          {
+            ...validCase.expectations[0]!,
+            applicableRegimes: ["periodically-shedding"],
+          },
+        ],
+      },
     ];
     for (const incompatibleCase of incompatibleCases) {
       await expect(
@@ -123,6 +147,98 @@ describe("validation runner", () => {
       failures: [
         "Case re20-steady: meanDragCoefficient measured 2.5; expected [2, 2.2] with tolerance 0.",
       ],
+    });
+  });
+
+  it("withholds a regime when aggregate numerical-health evidence is unavailable", async () => {
+    const suite = syntheticValidationSuite();
+    const backend = syntheticBackend();
+    const driftingBackend: SolverBackend = {
+      ...backend,
+      async *runCase(definition) {
+        for await (const sample of backend.runCase(definition)) {
+          yield {
+            ...sample,
+            density: { ...sample.density, mean: 1.02 },
+          };
+        }
+      },
+    };
+
+    const manifest = await runValidation(suite, driftingBackend);
+
+    expect(manifest.cases[0]).toMatchObject({
+      status: "fail",
+      availability: "unavailable",
+      failures: [expect.stringContaining("mean density drift")],
+    });
+    expect(manifest.cases[0]).not.toHaveProperty("regime");
+  });
+
+  it("marks regime-dependent evidence inapplicable without failing an allowed regime", async () => {
+    const suite = syntheticValidationSuite();
+    const definition = suite.cases[0]!;
+    const manifest = await runValidation(
+      {
+        ...suite,
+        cases: [
+          {
+            ...definition,
+            expectedRegimes: ["steady", "periodically-shedding", "unclassified"],
+            expectations: [
+              ...definition.expectations,
+              {
+                metric: "strouhalNumber",
+                applicableRegimes: ["periodically-shedding"],
+                range: { minimum: 0.1, maximum: 0.2 },
+                tolerance: 0,
+                sources: [
+                  {
+                    id: "periodic-reference",
+                    url: "https://example.test/periodic-reference",
+                    convention: "stable periodic lift after warm-up",
+                  },
+                ],
+              },
+              {
+                metric: "liftRms",
+                applicableRegimes: ["periodically-shedding"],
+                range: { minimum: 0.1, maximum: 0.3 },
+                tolerance: 0,
+                sources: [
+                  {
+                    id: "periodic-lift-reference",
+                    url: "https://example.test/periodic-lift-reference",
+                    convention: "lift RMS after stable periodic shedding",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      syntheticBackend(),
+    );
+
+    expect(parseValidationManifest(manifest)).toEqual(manifest);
+    expect(manifest.cases[0]).toMatchObject({
+      status: "pass",
+      regime: "steady",
+      metrics: {
+        strouhalNumber: {
+          applicability: "inapplicable",
+          status: "not-assessed",
+          message:
+            "Strouhal number is inapplicable when the measured regime is steady.",
+        },
+        liftRms: {
+          applicability: "inapplicable",
+          measured: 0,
+          status: "not-assessed",
+          message: "lift rms is inapplicable when the measured regime is steady.",
+        },
+      },
+      failures: [],
     });
   });
 });

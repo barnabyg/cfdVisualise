@@ -222,9 +222,9 @@ function validateMetric(value: unknown, location: string): void {
       ? undefined
       : finite(metric.measured, `${location} must have a finite measured value`);
   if (metric.applicability === "inapplicable") {
-    if (metric.measured !== undefined || metric.status === "pass") {
+    if (metric.status !== "not-assessed") {
       throw new ValidationManifestSchemaError(
-        `${location} has invalid applicability: an inapplicable metric cannot pass or have a value.`,
+        `${location} has invalid applicability: an inapplicable metric must not be assessed.`,
       );
     }
     return;

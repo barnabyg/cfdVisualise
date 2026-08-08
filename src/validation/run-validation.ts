@@ -199,13 +199,20 @@ async function runCase(
     (sample) => sample.flowThroughTime > definition.protocol.warmUpFlowThroughTime,
   );
   const warmUpEnd = lastAtOrBefore(samples, definition.protocol.warmUpFlowThroughTime);
-  const metrics = calculateMetrics(definition, warmUpEnd, sampleWindow, failures);
-  const availability = failures.length === 0 ? "available" : "unavailable";
   const periodicWindow = warmUpEnd === undefined ? sampleWindow : [warmUpEnd, ...sampleWindow];
-  const regime =
-    availability === "available"
+  const measuredRegime =
+    failures.length === 0
       ? classify(definition, sampleWindow, periodicWindow)
       : undefined;
+  const metrics = calculateMetrics(
+    definition,
+    warmUpEnd,
+    sampleWindow,
+    measuredRegime,
+    failures,
+  );
+  const availability = failures.length === 0 ? "available" : "unavailable";
+  const regime = availability === "available" ? measuredRegime : undefined;
 
   if (regime !== undefined && !definition.expectedRegimes.includes(regime)) {
     failures.push(
@@ -326,6 +333,7 @@ function calculateMetrics(
   definition: ValidationCaseDefinition,
   warmUpEnd: ValidationSample | undefined,
   samples: readonly ValidationSample[],
+  regime: FlowRegime | undefined,
   caseFailures: string[],
 ): Readonly<Record<string, MetricEvidence>> {
   if (warmUpEnd === undefined || samples.length === 0) {
@@ -408,6 +416,7 @@ function calculateMetrics(
     evidence[expectation.metric] = expectationEvidence(
       definition.id,
       expectation,
+      regime,
       measured[expectation.metric],
     );
   }
@@ -425,8 +434,22 @@ function calculateMetrics(
 function expectationEvidence(
   caseId: string,
   expectation: MetricExpectation,
+  regime: FlowRegime | undefined,
   measured: number | undefined,
 ): MetricEvidence {
+  if (
+    regime !== undefined &&
+    expectation.applicableRegimes !== undefined &&
+    !expectation.applicableRegimes.includes(regime)
+  ) {
+    return {
+      schemaVersion: VALIDATION_SCHEMA_VERSION,
+      applicability: "inapplicable",
+      ...(measured === undefined ? {} : { measured }),
+      status: "not-assessed",
+      message: `${metricLabel(expectation.metric)} is inapplicable when the measured regime is ${regime}.`,
+    };
+  }
   if (measured === undefined) {
     return {
       schemaVersion: VALIDATION_SCHEMA_VERSION,
@@ -525,6 +548,13 @@ function mean(values: readonly number[]): number {
 
 function rootMeanSquare(values: readonly number[]): number {
   return Math.sqrt(mean(values.map((value) => value * value)));
+}
+
+function metricLabel(metric: ObservableMetric): string {
+  if (metric === "strouhalNumber") {
+    return "Strouhal number";
+  }
+  return metric.replace(/[A-Z]/g, (letter) => ` ${letter.toLowerCase()}`);
 }
 
 function relativeVariation(values: readonly number[]): number {
