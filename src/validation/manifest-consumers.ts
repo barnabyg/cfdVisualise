@@ -129,6 +129,7 @@ export function createMethodAndValidationModel(
 
 function releaseEvidenceProblem(
   activeCases: readonly ReturnType<typeof parseValidationManifest>["cases"][number][],
+  evidenceCases: readonly ReturnType<typeof parseValidationManifest>["cases"][number][],
   reconciliations: ReturnType<typeof parseValidationManifest>["reconciliations"],
 ): string | undefined {
   const requiredReynoldsNumbers = [5, 20, 40, 45, 50, 100, 150];
@@ -166,8 +167,8 @@ function releaseEvidenceProblem(
         return `${kind} reconciliation ${metricProblem}`;
       }
       if (kind !== "backend") {
-        const baseline = findActiveCase(activeCases, evidence.baselineCaseId);
-        const comparisonCases = findComparisonCases(activeCases, evidence);
+        const baseline = findCaseById(evidenceCases, evidence.baselineCaseId);
+        const comparisonCases = findComparisonCases(evidenceCases, evidence);
         if (
           baseline === undefined ||
           comparisonCases.length !== evidence.comparisons.length ||
@@ -178,14 +179,14 @@ function releaseEvidenceProblem(
               comparison.comparisonRegime !== comparisonCases[index]?.regime,
           )
         ) {
-          return `${kind} reconciliation does not compare matched active reference cases`;
+          return `${kind} reconciliation does not compare matched evidence cases`;
         }
       }
     }
     if (kind === "grid") {
       const evidence = evidenceForKind[0]!;
-      const baseline = findActiveCase(activeCases, evidence.baselineCaseId);
-      const comparisonCases = findComparisonCases(activeCases, evidence);
+      const baseline = findCaseById(evidenceCases, evidence.baselineCaseId);
+      const comparisonCases = findComparisonCases(evidenceCases, evidence);
       const resolutions = new Set(
         comparisonCases.map((result) => result.configuration.cylinder.cellsPerDiameter),
       );
@@ -205,8 +206,8 @@ function releaseEvidenceProblem(
     if (kind === "domain") {
       const variedExtents = new Set<string>();
       for (const evidence of evidenceForKind) {
-        const baseline = findActiveCase(activeCases, evidence.baselineCaseId);
-        for (const comparison of findComparisonCases(activeCases, evidence)) {
+        const baseline = findCaseById(evidenceCases, evidence.baselineCaseId);
+        for (const comparison of findComparisonCases(evidenceCases, evidence)) {
           if (baseline === undefined) continue;
           const changedExtents = ([
             "upstreamDiameters",
@@ -227,7 +228,7 @@ function releaseEvidenceProblem(
     }
     if (kind === "cylinder-placement") {
       const hasFractionalShift = evidenceForKind.some((evidence) =>
-        findComparisonCases(activeCases, evidence).some((result) => {
+        findComparisonCases(evidenceCases, evidence).some((result) => {
           const { offsetX, offsetY } = result.configuration.cylinder;
           return !Number.isInteger(offsetX) || !Number.isInteger(offsetY);
         }),
@@ -240,9 +241,9 @@ function releaseEvidenceProblem(
       const covered = new Set<"low" | "onset" | "shedding">();
       const changedBoundaries = new Set<"inlet" | "lateral" | "outlet">();
       for (const evidence of evidenceForKind) {
-        const baseline = findActiveCase(activeCases, evidence.baselineCaseId);
+        const baseline = findCaseById(evidenceCases, evidence.baselineCaseId);
         if (baseline === undefined) continue;
-        const comparisons = findComparisonCases(activeCases, evidence);
+        const comparisons = findComparisonCases(evidenceCases, evidence);
         const variesBoundary = comparisons.some((comparison) => {
           for (const boundary of ["inlet", "lateral", "outlet"] as const) {
             if (
@@ -332,7 +333,7 @@ function reconciliationMetricProblem(evidence: ParsedReconciliation): string | u
   return undefined;
 }
 
-function findActiveCase(cases: readonly ParsedCase[], caseId: string): ParsedCase | undefined {
+function findCaseById(cases: readonly ParsedCase[], caseId: string): ParsedCase | undefined {
   return cases.find((result) => result.caseId === caseId);
 }
 
@@ -341,7 +342,7 @@ function findComparisonCases(
   evidence: ParsedReconciliation,
 ): ParsedCase[] {
   return evidence.comparisons
-    .map((comparison) => findActiveCase(cases, comparison.comparisonCaseId))
+    .map((comparison) => findCaseById(cases, comparison.comparisonCaseId))
     .filter((result): result is ParsedCase => result !== undefined);
 }
 
@@ -357,7 +358,11 @@ export function evaluateReleaseGate(input: ReleaseGateInput): ReleaseGateResult 
         result.configuration.backendId === input.active.backendId &&
         result.configuration.qualityTier === input.active.qualityTier,
     );
-    const incompleteReason = releaseEvidenceProblem(activeCases, manifest.reconciliations);
+    const incompleteReason = releaseEvidenceProblem(
+      activeCases,
+      manifest.cases,
+      manifest.reconciliations,
+    );
     validation =
       incompleteReason === undefined
         ? { status: "pass" }
