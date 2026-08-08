@@ -12,7 +12,7 @@ const CX = [0, 1, 0, -1, 0, 1, -1, -1, 1] as const;
 const CY = [0, 0, 1, 0, -1, 1, 1, -1, -1] as const;
 const OPPOSITE = [0, 3, 4, 1, 2, 7, 8, 5, 6] as const;
 const WEIGHTS = [4 / 9, 1 / 9, 1 / 9, 1 / 9, 1 / 9, 1 / 36, 1 / 36, 1 / 36, 1 / 36] as const;
-const LATTICE_SPEED = 0.08;
+const DEFAULT_LATTICE_SPEED = 0.08;
 const TARGET_DENSITY = 1;
 const TRT_MAGIC_PARAMETER = 3 / 16;
 
@@ -27,8 +27,8 @@ export const CPU_REFERENCE_BACKEND_IDENTITY = Object.freeze({
   id: "cpu-reference",
   kind: "cpu-worker",
   solver: "D2Q9 TRT/BFL open-cylinder reference",
-  solverVersion: "1.0.0",
-  buildId: "ticket-02",
+  solverVersion: "1.1.0",
+  buildId: "ticket-03",
 } satisfies BackendIdentity);
 
 export interface CpuReferenceRunCaseCommand {
@@ -70,7 +70,7 @@ export async function* runCpuReferenceCase(
   yield solver.diagnostic(0, 0, 0);
 
   const stepsPerSample = exactStepCount(
-    (definition.protocol.sampleInterval * solver.cylinderDiameter) / LATTICE_SPEED,
+    (definition.protocol.sampleInterval * solver.cylinderDiameter) / solver.latticeSpeed,
     "sample interval",
   );
   const sampleCount = exactStepCount(
@@ -177,6 +177,11 @@ function exactStepCount(value: number, label: string): number {
 
 class D2Q9TrtOpenCylinder {
   public readonly cylinderDiameter: number;
+  public readonly latticeSpeed: number;
+  private readonly initialTransversePerturbation: number;
+  private readonly upstreamReflectionMode: NonNullable<
+    ValidationCaseDefinition["configuration"]["upstreamReflectionMode"]
+  >;
   private readonly width: number;
   private readonly height: number;
   private readonly cellCount: number;
@@ -200,6 +205,11 @@ class D2Q9TrtOpenCylinder {
 
   public constructor(definition: ValidationCaseDefinition) {
     this.cylinderDiameter = definition.configuration.cylinder.cellsPerDiameter;
+    this.latticeSpeed = definition.configuration.latticeSpeed ?? DEFAULT_LATTICE_SPEED;
+    this.initialTransversePerturbation =
+      definition.configuration.initialTransversePerturbation ?? 0;
+    this.upstreamReflectionMode =
+      definition.configuration.upstreamReflectionMode ?? "velocity-vector-about-mean";
     this.cylinderRadius = this.cylinderDiameter / 2;
     this.width =
       Math.round(
@@ -221,7 +231,7 @@ class D2Q9TrtOpenCylinder {
     this.cylinderCenterY =
       (this.height - 1) / 2 + definition.configuration.cylinder.offsetY;
     this.cylinderRearX = this.cylinderCenterX + this.cylinderRadius;
-    const viscosity = (LATTICE_SPEED * this.cylinderDiameter) / definition.reynoldsNumber;
+    const viscosity = (this.latticeSpeed * this.cylinderDiameter) / definition.reynoldsNumber;
     const tauEven = 0.5 + 3 * viscosity;
     const tauOdd = 0.5 + TRT_MAGIC_PARAMETER / (tauEven - 0.5);
     this.omegaEven = 1 / tauEven;
@@ -241,6 +251,9 @@ class D2Q9TrtOpenCylinder {
   }
 
   public advance(): { readonly x: number; readonly y: number } {
+    if (!this.hasAdvanced && this.initialTransversePerturbation > 0) {
+      this.applyInitialTransversePerturbation();
+    }
     this.collide();
     const force = this.streamAndBounceBack();
     // Later applications own shared corner populations, matching the public precedence contract.
@@ -264,7 +277,7 @@ class D2Q9TrtOpenCylinder {
     const fieldResidual = this.measureFieldResidual();
     const symmetryError = this.measureSymmetryError();
     const forceNormalizer =
-      0.5 * TARGET_DENSITY * LATTICE_SPEED * LATTICE_SPEED * this.cylinderDiameter;
+      0.5 * TARGET_DENSITY * this.latticeSpeed * this.latticeSpeed * this.cylinderDiameter;
     const recirculationLength = this.measureWakeRecirculationLength();
     const sample: ValidationSample = {
       step,
@@ -331,9 +344,42 @@ class D2Q9TrtOpenCylinder {
         this.populations[cell * 9 + direction] = equilibrium(
           direction,
           TARGET_DENSITY,
-          LATTICE_SPEED,
+          this.latticeSpeed,
           0,
         );
+      }
+    }
+  }
+
+  private applyInitialTransversePerturbation(): void {
+    const centreX = this.cylinderRearX + 0.75 * this.cylinderDiameter;
+    const centreY = this.cylinderCenterY + 0.25 * this.cylinderDiameter;
+    const radius = 0.5 * this.cylinderDiameter;
+    const radiusSquared = radius * radius;
+    const reconstructed = { rho: 0, ux: 0, uy: 0 };
+    for (let y = Math.floor(centreY - radius); y <= Math.ceil(centreY + radius); y += 1) {
+      for (let x = Math.floor(centreX - radius); x <= Math.ceil(centreX + radius); x += 1) {
+        const cell = this.cell(x, y);
+        if (this.solid[cell] === 1) {
+          continue;
+        }
+        const distanceSquared = (x - centreX) ** 2 + (y - centreY) ** 2;
+        if (distanceSquared > radiusSquared) {
+          continue;
+        }
+        const base = cell * 9;
+        reconstructMacroscopic(this.populations, base, reconstructed);
+        const transverseVelocity =
+          reconstructed.uy +
+          this.initialTransversePerturbation * Math.exp(-4 * distanceSquared / radiusSquared);
+        for (let direction = 0; direction < 9; direction += 1) {
+          this.populations[base + direction] = equilibrium(
+            direction,
+            reconstructed.rho,
+            reconstructed.ux,
+            transverseVelocity,
+          );
+        }
       }
     }
   }
@@ -450,7 +496,7 @@ class D2Q9TrtOpenCylinder {
             (this.next[boundaryBase + 3]! +
               this.next[boundaryBase + 6]! +
               this.next[boundaryBase + 7]!)) /
-        (1 - LATTICE_SPEED);
+        (1 - this.latticeSpeed);
       const neighbour = macroscopic(this.next, neighbourBase);
       const stress = nonEquilibriumStress(
         this.next,
@@ -468,7 +514,7 @@ class D2Q9TrtOpenCylinder {
           WEIGHTS[direction]! *
           (qxx * stress.xx + 2 * qxy * stress.xy + qyy * stress.yy);
         this.next[boundaryBase + direction] =
-          equilibrium(direction, rho, LATTICE_SPEED, 0) + regularizedNonEquilibrium;
+          equilibrium(direction, rho, this.latticeSpeed, 0) + regularizedNonEquilibrium;
       }
     }
   }
@@ -612,26 +658,39 @@ class D2Q9TrtOpenCylinder {
       const cell = this.cell(x, y);
       flux += this.density[cell]! * this.velocityX[cell]!;
     }
-    return flux * (this.cylinderDiameter / LATTICE_SPEED);
+    return flux * (this.cylinderDiameter / this.latticeSpeed);
   }
 
   private measureUpstreamReflection(): number {
     const probeX = 1;
-    let meanVelocityX = 0;
-    let count = 0;
-    for (let y = 1; y < this.height - 1; y += 1) {
-      meanVelocityX += this.velocityX[this.cell(probeX, y)]!;
-      count += 1;
+    if (this.upstreamReflectionMode === "velocity-vector-about-mean") {
+      let meanVelocityX = 0;
+      let count = 0;
+      for (let y = 1; y < this.height - 1; y += 1) {
+        meanVelocityX += this.velocityX[this.cell(probeX, y)]!;
+        count += 1;
+      }
+      meanVelocityX /= count;
+      let squaredDisturbance = 0;
+      for (let y = 1; y < this.height - 1; y += 1) {
+        const cell = this.cell(probeX, y);
+        const streamwiseDisturbance = this.velocityX[cell]! - meanVelocityX;
+        const transverseDisturbance = this.velocityY[cell]!;
+        squaredDisturbance +=
+          streamwiseDisturbance * streamwiseDisturbance +
+          transverseDisturbance * transverseDisturbance;
+      }
+      return Math.sqrt(squaredDisturbance / count) / this.latticeSpeed;
     }
-    meanVelocityX /= count;
-    let squaredDisturbance = 0;
+    let count = 0;
+    let squaredStreamwiseDisturbance = 0;
     for (let y = 1; y < this.height - 1; y += 1) {
       const cell = this.cell(probeX, y);
-      const du = this.velocityX[cell]! - meanVelocityX;
-      const dv = this.velocityY[cell]!;
-      squaredDisturbance += du * du + dv * dv;
+      const streamwiseDisturbance = this.velocityX[cell]! - this.latticeSpeed;
+      squaredStreamwiseDisturbance += streamwiseDisturbance * streamwiseDisturbance;
+      count += 1;
     }
-    return Math.sqrt(squaredDisturbance / count) / LATTICE_SPEED;
+    return Math.sqrt(squaredStreamwiseDisturbance / count) / this.latticeSpeed;
   }
 
   private cell(x: number, y: number): number {

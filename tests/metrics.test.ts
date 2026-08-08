@@ -37,22 +37,119 @@ describe("validation metrics", () => {
     });
   });
 
-  it("identifies a stable periodic lift signal without field hashing", () => {
+  it("reports complete stable-periodic lift evidence in flow-through-time units", () => {
     const samples = Array.from({ length: 81 }, (_, index) => ({
       flowThroughTime: index * 0.25,
       liftCoefficient: 0.3 * Math.sin(2 * Math.PI * 0.2 * index * 0.25),
     }));
 
+    const analysis = analyseLiftSignal(samples, {
+      minimumCycles: 4,
+      minimumAmplitude: 0.1,
+      maximumFrequencyVariation: 0.02,
+      maximumAmplitudeVariation: 0.05,
+    });
+
+    expect(analysis).toMatchObject({
+      outcome: "stable-periodic",
+      stable: true,
+      dominantFrequency: 0.2,
+      strouhalNumber: 0.2,
+      cycles: 4,
+      frequencyVariation: 0,
+      amplitudeVariation: 0,
+      frequencyUncertainty: 0.025,
+    });
+    expect(analysis.liftRms).toBeCloseTo(0.21, 2);
+    expect(analysis.amplitude).toBeCloseTo(0.3, 2);
+  });
+
+  it("distinguishes an unstable periodic signal from a developing signal", () => {
+    const unstable = Array.from({ length: 81 }, (_, index) => {
+      const flowThroughTime = index * 0.25;
+      const amplitude = flowThroughTime <= 10 ? 0.15 : 0.35;
+      return {
+        flowThroughTime,
+        liftCoefficient: amplitude * Math.sin(2 * Math.PI * 0.2 * flowThroughTime),
+      };
+    });
+
     expect(
-      analyseLiftSignal(samples, {
+      analyseLiftSignal(unstable, {
         minimumCycles: 4,
+        minimumAmplitude: 0.1,
         maximumFrequencyVariation: 0.02,
         maximumAmplitudeVariation: 0.05,
       }),
     ).toMatchObject({
-      stable: true,
-      strouhalNumber: 0.2,
+      outcome: "unstable-periodic",
+      stable: false,
+      dominantFrequency: 0.2,
       cycles: 4,
+    });
+  });
+
+  it("detects frequency drift finer than a half-window Fourier bin", () => {
+    const drifting = Array.from({ length: 129 }, (_, index) => {
+      const flowThroughTime = index * 0.25;
+      const phaseCycles =
+        flowThroughTime <= 16
+          ? 0.16 * flowThroughTime
+          : 0.16 * 16 + 0.18 * (flowThroughTime - 16);
+      return {
+        flowThroughTime,
+        liftCoefficient: 0.3 * Math.sin(2 * Math.PI * phaseCycles),
+      };
+    });
+
+    expect(
+      analyseLiftSignal(drifting, {
+        minimumCycles: 4,
+        minimumAmplitude: 0.1,
+        maximumFrequencyVariation: 0.05,
+        maximumAmplitudeVariation: 0.1,
+      }),
+    ).toMatchObject({
+      outcome: "unstable-periodic",
+      stable: false,
+    });
+    expect(
+      analyseLiftSignal(drifting, {
+        minimumCycles: 4,
+        minimumAmplitude: 0.1,
+        maximumFrequencyVariation: 0.05,
+        maximumAmplitudeVariation: 0.1,
+      }).frequencyVariation,
+    ).toBeGreaterThan(0.05);
+  });
+
+  it("reports developing and unavailable signal outcomes without inventing Strouhal evidence", () => {
+    const developing = Array.from({ length: 21 }, (_, index) => ({
+      flowThroughTime: index * 0.25,
+      liftCoefficient: 0.3 * Math.sin(2 * Math.PI * 0.2 * index * 0.25),
+    }));
+    const thresholds = {
+      minimumCycles: 4,
+      minimumAmplitude: 0.1,
+      maximumFrequencyVariation: 0.02,
+      maximumAmplitudeVariation: 0.05,
+    };
+
+    expect(analyseLiftSignal(developing, thresholds)).toMatchObject({
+      outcome: "developing",
+      stable: false,
+    });
+    expect(
+      analyseLiftSignal(
+        developing.map((sample, index) =>
+          index === 10 ? { ...sample, liftCoefficient: Number.NaN } : sample,
+        ),
+        thresholds,
+      ),
+    ).toMatchObject({
+      outcome: "unavailable",
+      stable: false,
+      reason: expect.stringContaining("finite"),
     });
   });
 });

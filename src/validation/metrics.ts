@@ -25,17 +25,29 @@ export interface LiftSignalSample {
 
 export interface LiftSignalThresholds {
   readonly minimumCycles: number;
+  readonly minimumAmplitude: number;
   readonly maximumFrequencyVariation: number;
   readonly maximumAmplitudeVariation: number;
 }
 
+export type LiftSignalOutcome =
+  | "stable-periodic"
+  | "unstable-periodic"
+  | "developing"
+  | "unavailable";
+
 export interface LiftSignalAnalysis {
+  readonly outcome: LiftSignalOutcome;
   readonly stable: boolean;
   readonly strouhalNumber: number;
   readonly cycles: number;
+  readonly liftRms: number;
   readonly amplitude: number;
+  readonly dominantFrequency: number;
   readonly frequencyVariation: number;
   readonly amplitudeVariation: number;
+  readonly frequencyUncertainty: number;
+  readonly reason?: string;
 }
 
 export function measureCentrelineSymmetry(
@@ -131,39 +143,85 @@ export function analyseLiftSignal(
   samples: readonly LiftSignalSample[],
   thresholds: LiftSignalThresholds,
 ): LiftSignalAnalysis {
+  try {
+    validateLiftSamples(samples);
+  } catch (error) {
+    return emptyLiftAnalysis(
+      "unavailable",
+      error instanceof Error ? error.message : "Lift signal could not be validated.",
+    );
+  }
   if (samples.length < 8) {
     return emptyLiftAnalysis();
   }
-  validateLiftSamples(samples);
   const middle = Math.floor(samples.length / 2);
   const first = samples.slice(0, middle + 1);
   const second = samples.slice(middle);
-  const frequency = dominantFrequency(samples);
-  const firstFrequency = dominantFrequency(first);
-  const secondFrequency = dominantFrequency(second);
+  const frequency = signalFrequency(samples);
+  const firstFrequency = signalFrequency(first);
+  const secondFrequency = signalFrequency(second);
   const amplitude = signalAmplitude(samples);
+  const liftRms = amplitude / Math.SQRT2;
   const firstAmplitude = signalAmplitude(first);
   const secondAmplitude = signalAmplitude(second);
   const frequencyVariation = relativeDifference(firstFrequency, secondFrequency);
   const amplitudeVariation = relativeDifference(firstAmplitude, secondAmplitude);
   const duration = samples.at(-1)!.flowThroughTime - samples[0]!.flowThroughTime;
   const cycles = frequency * duration;
+  const stable =
+    frequency > 0 &&
+    amplitude >= thresholds.minimumAmplitude &&
+    cycles >= thresholds.minimumCycles - 1e-9 &&
+    frequencyVariation <= thresholds.maximumFrequencyVariation &&
+    amplitudeVariation <= thresholds.maximumAmplitudeVariation;
+  const developedPeriodicity =
+    frequency > 0 &&
+    amplitude >= thresholds.minimumAmplitude &&
+    cycles >= thresholds.minimumCycles - 1e-9;
   return {
-    stable:
-      frequency > 0 &&
-      amplitude > Number.EPSILON &&
-      cycles >= thresholds.minimumCycles - 1e-9 &&
-      frequencyVariation <= thresholds.maximumFrequencyVariation &&
-      amplitudeVariation <= thresholds.maximumAmplitudeVariation,
+    outcome: stable
+      ? "stable-periodic"
+      : developedPeriodicity
+        ? "unstable-periodic"
+        : "developing",
+    stable,
     strouhalNumber: frequency,
     cycles,
+    liftRms,
     amplitude,
+    dominantFrequency: frequency,
     frequencyVariation,
     amplitudeVariation,
+    frequencyUncertainty: 0.5 / duration,
   };
 }
 
-function dominantFrequency(samples: readonly LiftSignalSample[]): number {
+function signalFrequency(samples: readonly LiftSignalSample[]): number {
+  const values = samples.map((sample) => sample.liftCoefficient);
+  const average = mean(values);
+  const upwardCrossings: number[] = [];
+  for (let index = 0; index < samples.length - 1; index += 1) {
+    const left = samples[index]!;
+    const right = samples[index + 1]!;
+    const leftValue = left.liftCoefficient - average;
+    const rightValue = right.liftCoefficient - average;
+    if (leftValue <= 0 && rightValue > 0) {
+      const fraction = -leftValue / (rightValue - leftValue);
+      upwardCrossings.push(
+        left.flowThroughTime + fraction * (right.flowThroughTime - left.flowThroughTime),
+      );
+    }
+  }
+  if (upwardCrossings.length >= 2) {
+    const periods = upwardCrossings
+      .slice(1)
+      .map((crossing, index) => crossing - upwardCrossings[index]!);
+    return 1 / mean(periods);
+  }
+  return fourierDominantFrequency(samples);
+}
+
+function fourierDominantFrequency(samples: readonly LiftSignalSample[]): number {
   const firstTime = samples[0]!.flowThroughTime;
   const duration = samples.at(-1)!.flowThroughTime - firstTime;
   if (duration <= 0) {
@@ -244,13 +302,21 @@ function relativeDifference(left: number, right: number): number {
   return Math.abs(left - right) / Math.max(Math.abs(left), Math.abs(right), Number.EPSILON);
 }
 
-function emptyLiftAnalysis(): LiftSignalAnalysis {
+function emptyLiftAnalysis(
+  outcome: LiftSignalOutcome = "developing",
+  reason?: string,
+): LiftSignalAnalysis {
   return {
+    outcome,
     stable: false,
     strouhalNumber: 0,
     cycles: 0,
+    liftRms: 0,
     amplitude: 0,
+    dominantFrequency: 0,
     frequencyVariation: Number.POSITIVE_INFINITY,
     amplitudeVariation: Number.POSITIVE_INFINITY,
+    frequencyUncertainty: Number.POSITIVE_INFINITY,
+    ...(reason === undefined ? {} : { reason }),
   };
 }
