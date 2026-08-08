@@ -115,9 +115,9 @@ class D2Q9TrtOpenCylinder {
   private readonly density: Float64Array;
   private readonly velocityX: Float64Array;
   private readonly velocityY: Float64Array;
-  private previousDiagnosticVelocityX?: Float64Array;
-  private previousDiagnosticVelocityY?: Float64Array;
-  private previousDiagnosticStep?: number;
+  private readonly previousStepVelocityX: Float64Array;
+  private readonly previousStepVelocityY: Float64Array;
+  private hasAdvanced = false;
 
   public constructor(definition: ValidationCaseDefinition) {
     this.cylinderDiameter = definition.configuration.cylinder.cellsPerDiameter;
@@ -155,6 +155,8 @@ class D2Q9TrtOpenCylinder {
     this.density = new Float64Array(this.cellCount);
     this.velocityX = new Float64Array(this.cellCount);
     this.velocityY = new Float64Array(this.cellCount);
+    this.previousStepVelocityX = new Float64Array(this.cellCount);
+    this.previousStepVelocityY = new Float64Array(this.cellCount);
     this.initializeGeometry();
     this.initializeUniformFlow();
   }
@@ -169,6 +171,7 @@ class D2Q9TrtOpenCylinder {
     const previous = this.populations;
     this.populations = this.next;
     this.next = previous;
+    this.hasAdvanced = true;
     return force;
   }
 
@@ -179,7 +182,7 @@ class D2Q9TrtOpenCylinder {
     meanForceY = 0,
   ): ValidationSample {
     const density = this.updateMacroscopicFields();
-    const fieldResidual = this.measureFieldResidual(step);
+    const fieldResidual = this.measureFieldResidual();
     const symmetryError = this.measureSymmetryError();
     const forceNormalizer =
       0.5 * TARGET_DENSITY * LATTICE_SPEED * LATTICE_SPEED * this.cylinderDiameter;
@@ -198,9 +201,6 @@ class D2Q9TrtOpenCylinder {
       liftCoefficient: meanForceY / forceNormalizer,
       ...(recirculationLength === undefined ? {} : { recirculationLength }),
     };
-    this.previousDiagnosticVelocityX = this.velocityX.slice();
-    this.previousDiagnosticVelocityY = this.velocityY.slice();
-    this.previousDiagnosticStep = step;
     return sample;
   }
 
@@ -277,6 +277,8 @@ class D2Q9TrtOpenCylinder {
       }
       const ux = momentumX / rho;
       const uy = momentumY / rho;
+      this.previousStepVelocityX[cell] = ux;
+      this.previousStepVelocityY[cell] = uy;
       for (let direction = 0; direction < 9; direction += 1) {
         equilibriumValues[direction] = equilibrium(direction, rho, ux, uy);
       }
@@ -455,12 +457,8 @@ class D2Q9TrtOpenCylinder {
     };
   }
 
-  private measureFieldResidual(step: number): number {
-    if (
-      this.previousDiagnosticVelocityX === undefined ||
-      this.previousDiagnosticVelocityY === undefined ||
-      this.previousDiagnosticStep === undefined
-    ) {
+  private measureFieldResidual(): number {
+    if (!this.hasAdvanced) {
       return 0;
     }
     let squaredDifference = 0;
@@ -469,18 +467,14 @@ class D2Q9TrtOpenCylinder {
       if (this.solid[cell] === 1) {
         continue;
       }
-      const dx = this.velocityX[cell]! - this.previousDiagnosticVelocityX[cell]!;
-      const dy = this.velocityY[cell]! - this.previousDiagnosticVelocityY[cell]!;
+      const dx = this.velocityX[cell]! - this.previousStepVelocityX[cell]!;
+      const dy = this.velocityY[cell]! - this.previousStepVelocityY[cell]!;
       squaredDifference += dx * dx + dy * dy;
       squaredReference +=
         this.velocityX[cell]! * this.velocityX[cell]! +
         this.velocityY[cell]! * this.velocityY[cell]!;
     }
-    const elapsedSteps = step - this.previousDiagnosticStep;
-    return (
-      Math.sqrt(squaredDifference / Math.max(squaredReference, Number.EPSILON)) /
-      Math.max(elapsedSteps, 1)
-    );
+    return Math.sqrt(squaredDifference / Math.max(squaredReference, Number.EPSILON));
   }
 
   private measureSymmetryError(): number {

@@ -81,4 +81,43 @@ describe("CPU reference backend", () => {
       ].every(Number.isFinite),
     ).toBe(true);
   });
+
+  it("measures the final one-step field residual independently of diagnostic interval", async () => {
+    const reference = STEADY_RE20_VALIDATION_SUITE.cases[0]!;
+    const compact: ValidationCaseDefinition = {
+      ...reference,
+      configuration: {
+        ...reference.configuration,
+        domain: { upstreamDiameters: 2, downstreamDiameters: 3, lateralDiameters: 2 },
+      },
+      protocol: {
+        warmUpFlowThroughTime: 0,
+        sampleFlowThroughTime: 1,
+        sampleInterval: 1,
+      },
+      expectations: [],
+    };
+
+    const once = await lastSample(compact);
+    const twice = await lastSample({
+      ...compact,
+      protocol: { ...compact.protocol, sampleInterval: 0.5 },
+    });
+
+    expect(once.step).toBe(twice.step);
+    expect(once.flowThroughTime).toBe(twice.flowThroughTime);
+    expect(once.fieldResidual).toBeCloseTo(twice.fieldResidual, 14);
+  });
 });
+
+async function lastSample(definition: ValidationCaseDefinition): Promise<ValidationSample> {
+  let last: ValidationSample | undefined;
+  const backend = createCpuReferenceBackend();
+  for await (const sample of backend.runCase(definition)) {
+    last = sample;
+  }
+  if (last === undefined) {
+    throw new Error("CPU reference backend emitted no samples.");
+  }
+  return last;
+}
