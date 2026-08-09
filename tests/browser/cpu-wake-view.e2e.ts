@@ -41,6 +41,7 @@ test("production CPU Worker renders, resizes, rejects stale events, and disposes
     globalThis.Worker = AuditedWorker;
   });
   await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 1440, height: 900 });
   const workerCreated = page.waitForEvent("worker");
   await page.goto("/");
   const productionWorker = await workerCreated;
@@ -50,6 +51,13 @@ test("production CPU Worker renders, resizes, rejects stale events, and disposes
   await expect(page.getByText(/CPU balanced/)).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("checkbox", { name: /passive tracers/i })).not.toBeChecked();
   await expect(page.getByText("paused", { exact: true })).toBeVisible();
+
+  const desktopBounds = await wake.evaluate((canvas) => {
+    const bounds = canvas.getBoundingClientRect();
+    return { width: bounds.width, height: bounds.height, bottom: bounds.bottom };
+  });
+  expect(desktopBounds.width / desktopBounds.height).toBeCloseTo(2.5, 1);
+  expect(desktopBounds.bottom).toBeLessThanOrEqual(900);
 
   const before = await wake.evaluate((canvas) => (canvas as HTMLCanvasElement).width);
   await page.setViewportSize({ width: 980, height: 760 });
