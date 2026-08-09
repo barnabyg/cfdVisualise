@@ -221,6 +221,36 @@ export interface SolverBackend {
   runCase(caseDefinition: ValidationCaseDefinition): AsyncIterable<ValidationSample>;
 }
 
+/** Commands shared by CPU and WebGPU validation engines at the fixed-step seam. */
+export type FixedStepCaseCommand =
+  | {
+      readonly type: "advance-fixed-steps";
+      readonly stepCount: number;
+      readonly reynoldsNumber: number;
+    }
+  | {
+      readonly type: "sample-diagnostics";
+      readonly step: number;
+      readonly flowThroughTime: number;
+      readonly stepsSinceSample: number;
+    }
+  | { readonly type: "dispose" };
+
+export interface FixedStepCaseExecution {
+  readonly cylinderDiameter: number;
+  readonly latticeSpeed: number;
+  execute(command: FixedStepCaseCommand): Promise<ValidationSample | undefined>;
+}
+
+/**
+ * The backend-neutral incremental contract used beneath batch validation.
+ * `runCase` remains the Worker-friendly orchestration seam; `createCase` proves
+ * that both solvers consume the same fixed-step command vocabulary.
+ */
+export interface FixedStepSolverBackend extends SolverBackend {
+  createCase(caseDefinition: ValidationCaseDefinition): Promise<FixedStepCaseExecution>;
+}
+
 export interface MetricEvidence {
   readonly schemaVersion: ContractSchemaVersion;
   readonly applicability: "applicable" | "inapplicable";

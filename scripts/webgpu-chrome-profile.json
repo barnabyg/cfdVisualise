@@ -1,0 +1,6 @@
+[
+  "--enable-unsafe-webgpu",
+  "--use-webgpu-adapter=swiftshader",
+  "--use-gpu-in-tests",
+  "--enable-unsafe-swiftshader"
+]

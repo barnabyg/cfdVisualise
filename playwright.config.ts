@@ -1,4 +1,5 @@
 import { defineConfig } from "@playwright/test";
+import webGpuChromeArgs from "./scripts/webgpu-chrome-profile.json" with { type: "json" };
 
 export default defineConfig({
   testDir: "./tests/browser",
@@ -11,7 +12,10 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   projects: [
-    { name: "chromium", use: { browserName: "chromium" } },
+    {
+      name: "chromium",
+      use: { browserName: "chromium" },
+    },
     {
       name: "firefox",
       use: {
@@ -28,7 +32,18 @@ export default defineConfig({
       },
     },
     { name: "webkit", use: { browserName: "webkit" } },
-    { name: "chrome", use: { channel: "chrome" } },
-    { name: "edge", use: { channel: "msedge" } },
+    {
+      name: "chrome",
+      use: {
+        channel: "chrome",
+        launchOptions: {
+          args: webGpuChromeArgs,
+        },
+      },
+    },
+    {
+      name: "edge",
+      use: { channel: "msedge" },
+    },
   ],
 });

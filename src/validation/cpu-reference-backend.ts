@@ -1,27 +1,32 @@
 import { measureRecirculationLength } from "./metrics.js";
+import { runFixedStepValidationCase } from "./fixed-step-runner.js";
+import {
+  D2Q9_OPEN_CYLINDER_CONTRACT,
+  buildOpenCylinderGeometry,
+  equilibriumPopulation,
+  trtRelaxationRates,
+} from "./d2q9-open-cylinder-contract.js";
 import {
   VALIDATION_SCHEMA_VERSION,
   type BackendIdentity,
   type BoundaryConfiguration,
   type DensitySample,
-  type SolverBackend,
+  type FixedStepCaseCommand,
+  type FixedStepCaseExecution,
+  type FixedStepSolverBackend,
   type ValidationCaseDefinition,
   type ValidationSample,
 } from "./types.js";
 
-const CX = [0, 1, 0, -1, 0, 1, -1, -1, 1] as const;
-const CY = [0, 0, 1, 0, -1, 1, 1, -1, -1] as const;
-const OPPOSITE = [0, 3, 4, 1, 2, 7, 8, 5, 6] as const;
-const WEIGHTS = [4 / 9, 1 / 9, 1 / 9, 1 / 9, 1 / 9, 1 / 36, 1 / 36, 1 / 36, 1 / 36] as const;
-const DEFAULT_LATTICE_SPEED = 0.08;
-const TARGET_DENSITY = 1;
-const TRT_MAGIC_PARAMETER = 3 / 16;
+const CX = D2Q9_OPEN_CYLINDER_CONTRACT.directions.map(([x]) => x);
+const CY = D2Q9_OPEN_CYLINDER_CONTRACT.directions.map(([, y]) => y);
+const OPPOSITE = D2Q9_OPEN_CYLINDER_CONTRACT.opposite;
+const WEIGHTS = D2Q9_OPEN_CYLINDER_CONTRACT.weights;
+const DEFAULT_LATTICE_SPEED = D2Q9_OPEN_CYLINDER_CONTRACT.defaultLatticeSpeed;
+const TARGET_DENSITY = D2Q9_OPEN_CYLINDER_CONTRACT.targetDensity;
 
-export const CPU_REFERENCE_BOUNDARY_PRECEDENCE = Object.freeze([
-  "free-slip-lateral",
-  "regularized-velocity-inlet",
-  "fixed-density-nee-outlet",
-] as const);
+export const CPU_REFERENCE_BOUNDARY_PRECEDENCE =
+  D2Q9_OPEN_CYLINDER_CONTRACT.boundaryPrecedence;
 
 export const CPU_REFERENCE_BACKEND_IDENTITY = Object.freeze({
   schemaVersion: VALIDATION_SCHEMA_VERSION,
@@ -65,12 +70,15 @@ export interface CpuFlowFieldView {
 
 export function createCpuReferenceBackend(
   workerFactory: CpuReferenceWorkerFactory = createBrowserCpuReferenceWorker,
-): SolverBackend {
+): FixedStepSolverBackend {
   return {
     schemaVersion: VALIDATION_SCHEMA_VERSION,
     identity: CPU_REFERENCE_BACKEND_IDENTITY,
     runCase(definition) {
       return runCaseInWorker(definition, workerFactory);
+    },
+    createCase(definition) {
+      return Promise.resolve(createCpuFixedStepCase(definition));
     },
   };
 }
@@ -78,68 +86,62 @@ export function createCpuReferenceBackend(
 export async function* runCpuReferenceCase(
   definition: ValidationCaseDefinition,
 ): AsyncIterable<ValidationSample> {
-  validateReferenceConfiguration(definition);
-  const solver = new D2Q9TrtOpenCylinder(definition);
-  yield solver.diagnostic(0, 0, 0);
-
-  const stepsPerSample = exactStepCount(
-    (definition.protocol.sampleInterval * solver.cylinderDiameter) / solver.latticeSpeed,
-    "sample interval",
+  yield* runFixedStepValidationCase(
+    definition,
+    () => Promise.resolve(createCpuFixedStepCase(definition)),
+    "CPU reference",
   );
-  const sampleCount = exactStepCount(
-    (definition.protocol.warmUpFlowThroughTime +
-      definition.protocol.sampleFlowThroughTime) /
-      definition.protocol.sampleInterval,
-    "case duration",
-  );
-  const reynoldsChange = definition.protocol.reynoldsChange;
-  let step = 0;
-  for (let sampleIndex = 1; sampleIndex <= sampleCount; sampleIndex += 1) {
-    let forceX = 0;
-    let forceY = 0;
-    for (let localStep = 0; localStep < stepsPerSample; localStep += 1) {
-      if (reynoldsChange !== undefined) {
-        solver.setReynoldsNumber(
-          reynoldsNumberAtFlowThroughTime(
-            definition,
-            (step * solver.latticeSpeed) / solver.cylinderDiameter,
-          ),
-        );
-      }
-      const force = solver.advance();
-      forceX += force.x;
-      forceY += force.y;
-      step += 1;
-    }
-    yield solver.diagnostic(
-      step,
-      sampleIndex * definition.protocol.sampleInterval,
-      forceX / stepsPerSample,
-      forceY / stepsPerSample,
-    );
-  }
 }
 
-function reynoldsNumberAtFlowThroughTime(
+export function createCpuFixedStepCase(
   definition: ValidationCaseDefinition,
-  flowThroughTime: number,
-): number {
-  const change = definition.protocol.reynoldsChange;
-  if (change === undefined) {
-    return definition.reynoldsNumber;
-  }
-  if (flowThroughTime <= change.atFlowThroughTime) {
-    return change.initialReynoldsNumber;
-  }
-  const rampProgress =
-    (flowThroughTime - change.atFlowThroughTime) / change.rampFlowThroughTime;
-  if (rampProgress >= 1) {
-    return definition.reynoldsNumber;
-  }
-  return (
-    change.initialReynoldsNumber +
-    rampProgress * (definition.reynoldsNumber - change.initialReynoldsNumber)
-  );
+): FixedStepCaseExecution {
+  validateReferenceConfiguration(definition);
+  const solver = new D2Q9TrtOpenCylinder(definition);
+  let forceX = 0;
+  let forceY = 0;
+  let stepsSinceDiagnostic = 0;
+  let disposed = false;
+  return {
+    cylinderDiameter: solver.cylinderDiameter,
+    latticeSpeed: solver.latticeSpeed,
+    async execute(command: FixedStepCaseCommand) {
+      if (disposed) throw new Error("The CPU fixed-step case has been disposed.");
+      if (command.type === "dispose") {
+        disposed = true;
+        return undefined;
+      }
+      if (command.type === "advance-fixed-steps") {
+        if (!Number.isInteger(command.stepCount) || command.stepCount <= 0) {
+          throw new RangeError("CPU fixed-step advancement requires a positive integer step count.");
+        }
+        solver.setReynoldsNumber(command.reynoldsNumber);
+        for (let step = 0; step < command.stepCount; step += 1) {
+          const force = solver.advance();
+          forceX += force.x;
+          forceY += force.y;
+          stepsSinceDiagnostic += 1;
+        }
+        return undefined;
+      }
+      const divisor = command.stepsSinceSample === 0 ? 1 : command.stepsSinceSample;
+      if (command.stepsSinceSample !== stepsSinceDiagnostic) {
+        throw new Error(
+          `CPU diagnostic expected ${stepsSinceDiagnostic} fixed steps; received ${command.stepsSinceSample}.`,
+        );
+      }
+      const sample = solver.diagnostic(
+        command.step,
+        command.flowThroughTime,
+        forceX / divisor,
+        forceY / divisor,
+      );
+      forceX = 0;
+      forceY = 0;
+      stepsSinceDiagnostic = 0;
+      return sample;
+    },
+  };
 }
 
 async function* runCaseInWorker(
@@ -215,14 +217,6 @@ function validateReferenceConfiguration(definition: ValidationCaseDefinition): v
   }
 }
 
-function exactStepCount(value: number, label: string): number {
-  const rounded = Math.round(value);
-  if (!Number.isFinite(value) || rounded <= 0 || Math.abs(value - rounded) > 1e-9) {
-    throw new Error(`CPU reference ${label} must resolve to a positive fixed step count; received ${value}.`);
-  }
-  return rounded;
-}
-
 export class D2Q9TrtOpenCylinder {
   public readonly cylinderDiameter: number;
   public readonly latticeSpeed: number;
@@ -236,7 +230,6 @@ export class D2Q9TrtOpenCylinder {
   private readonly cellCount: number;
   private readonly cylinderCenterX: number;
   private readonly cylinderCenterY: number;
-  private readonly cylinderRadius: number;
   private readonly cylinderRearX: number;
   private omegaEven = 0;
   private omegaOdd = 0;
@@ -258,41 +251,29 @@ export class D2Q9TrtOpenCylinder {
   private macroscopicFieldsCurrent = false;
 
   public constructor(definition: ValidationCaseDefinition) {
-    this.cylinderDiameter = definition.configuration.cylinder.cellsPerDiameter;
+    const geometry = buildOpenCylinderGeometry(definition);
+    this.cylinderDiameter = geometry.cylinderDiameter;
     this.latticeSpeed = definition.configuration.latticeSpeed ?? DEFAULT_LATTICE_SPEED;
     this.initialTransversePerturbation =
       definition.configuration.initialTransversePerturbation ?? 0;
     this.boundaries = definition.configuration.boundaries;
     this.upstreamReflectionMode =
       definition.configuration.upstreamReflectionMode ?? "velocity-vector-about-mean";
-    this.cylinderRadius = this.cylinderDiameter / 2;
-    this.width =
-      Math.round(
-        (definition.configuration.domain.upstreamDiameters +
-          1 +
-          definition.configuration.domain.downstreamDiameters) *
-          this.cylinderDiameter,
-      ) + 1;
-    this.height =
-      Math.round(
-        (2 * definition.configuration.domain.lateralDiameters + 1) *
-          this.cylinderDiameter,
-      ) + 1;
-    this.cellCount = this.width * this.height;
-    this.cylinderCenterX =
-      definition.configuration.domain.upstreamDiameters * this.cylinderDiameter +
-      this.cylinderRadius +
-      definition.configuration.cylinder.offsetX;
-    this.cylinderCenterY =
-      (this.height - 1) / 2 + definition.configuration.cylinder.offsetY;
-    this.cylinderRearX = this.cylinderCenterX + this.cylinderRadius;
+    this.width = geometry.width;
+    this.height = geometry.height;
+    this.cellCount = geometry.cellCount;
+    this.cylinderCenterX = geometry.cylinderCenterX;
+    this.cylinderCenterY = geometry.cylinderCenterY;
+    this.cylinderRearX = geometry.cylinderRearX;
     this.setReynoldsNumber(
       definition.protocol.reynoldsChange?.initialReynoldsNumber ?? definition.reynoldsNumber,
     );
-    this.solid = new Uint8Array(this.cellCount);
-    this.cutFraction = new Float64Array(this.cellCount * 9);
-    this.streamTarget = new Int32Array(this.cellCount * 9);
-    this.bounceAway = new Int32Array(this.cellCount * 9);
+    this.solid = geometry.solid;
+    this.cutFraction = geometry.cutFraction;
+    this.streamTarget = geometry.streamTarget;
+    this.bounceAway = geometry.bounceAway;
+    this.bounceLinks = geometry.bounceLinks;
+    this.retainsPostCollision = geometry.retainsPostCollision;
     this.populations = new Float64Array(this.cellCount * 9);
     this.next = new Float64Array(this.cellCount * 9);
     this.postCollision = new Float64Array(this.cellCount * 9);
@@ -301,9 +282,6 @@ export class D2Q9TrtOpenCylinder {
     this.velocityY = new Float64Array(this.cellCount);
     this.previousStepVelocityX = new Float64Array(this.cellCount);
     this.previousStepVelocityY = new Float64Array(this.cellCount);
-    this.initializeGeometry();
-    this.bounceLinks = this.initializeStreamingLinks();
-    this.retainsPostCollision = this.initializePostCollisionRetention();
     this.initializeUniformFlow();
   }
 
@@ -325,11 +303,13 @@ export class D2Q9TrtOpenCylinder {
   }
 
   public setReynoldsNumber(reynoldsNumber: number): void {
-    const viscosity = (this.latticeSpeed * this.cylinderDiameter) / reynoldsNumber;
-    const tauEven = 0.5 + 3 * viscosity;
-    const tauOdd = 0.5 + TRT_MAGIC_PARAMETER / (tauEven - 0.5);
-    this.omegaEven = 1 / tauEven;
-    this.omegaOdd = 1 / tauOdd;
+    const relaxation = trtRelaxationRates(
+      reynoldsNumber,
+      this.cylinderDiameter,
+      this.latticeSpeed,
+    );
+    this.omegaEven = relaxation.omegaEven;
+    this.omegaOdd = relaxation.omegaOdd;
   }
 
   public diagnostic(
@@ -383,48 +363,6 @@ export class D2Q9TrtOpenCylinder {
     this.applyWakePerturbation(amplitude);
   }
 
-  private initializeGeometry(): void {
-    const radiusSquared = this.cylinderRadius * this.cylinderRadius;
-    for (let y = 0; y < this.height; y += 1) {
-      for (let x = 0; x < this.width; x += 1) {
-        const cell = this.cell(x, y);
-        const dx = x - this.cylinderCenterX;
-        const dy = y - this.cylinderCenterY;
-        this.solid[cell] = dx * dx + dy * dy <= radiusSquared ? 1 : 0;
-      }
-    }
-    for (let y = 1; y < this.height - 1; y += 1) {
-      for (let x = 1; x < this.width - 1; x += 1) {
-        const cell = this.cell(x, y);
-        if (this.solid[cell] === 1) {
-          continue;
-        }
-        for (let direction = 1; direction < 9; direction += 1) {
-          const neighbour = this.cell(x + CX[direction]!, y + CY[direction]!);
-          if (this.solid[neighbour] === 1) {
-            this.cutFraction[cell * 9 + direction] = this.wallIntersectionFraction(
-              x,
-              y,
-              CX[direction]!,
-              CY[direction]!,
-            );
-          }
-        }
-      }
-    }
-  }
-
-  private wallIntersectionFraction(x: number, y: number, cx: number, cy: number): number {
-    const dx = x - this.cylinderCenterX;
-    const dy = y - this.cylinderCenterY;
-    const a = cx * cx + cy * cy;
-    const b = 2 * (dx * cx + dy * cy);
-    const c = dx * dx + dy * dy - this.cylinderRadius * this.cylinderRadius;
-    const discriminant = b * b - 4 * a * c;
-    const root = (-b - Math.sqrt(Math.max(0, discriminant))) / (2 * a);
-    return Math.min(1, Math.max(Number.EPSILON, root));
-  }
-
   private initializeUniformFlow(): void {
     for (let cell = 0; cell < this.cellCount; cell += 1) {
       for (let direction = 0; direction < 9; direction += 1) {
@@ -436,66 +374,6 @@ export class D2Q9TrtOpenCylinder {
         );
       }
     }
-  }
-
-  private initializePostCollisionRetention(): Uint8Array {
-    const retained = new Uint8Array(this.cellCount);
-    if (this.boundaries.lateral === "free-slip") {
-      for (let x = 0; x < this.width; x += 1) {
-        retained[this.cell(x, 0)] = 1;
-        retained[this.cell(x, this.height - 1)] = 1;
-      }
-    }
-    for (const link of this.bounceLinks) {
-      retained[Math.floor(link / 9)] = 1;
-      const away = this.bounceAway[link]!;
-      if (away >= 0) retained[Math.floor(away / 9)] = 1;
-    }
-    return retained;
-  }
-
-  private initializeStreamingLinks(): Int32Array {
-    const bounceLinks: number[] = [];
-    this.streamTarget.fill(-1);
-    this.bounceAway.fill(-1);
-    for (let y = 0; y < this.height; y += 1) {
-      for (let x = 0; x < this.width; x += 1) {
-        const cell = this.cell(x, y);
-        if (this.solid[cell] === 1) continue;
-        const base = cell * 9;
-        for (let direction = 1; direction < 9; direction += 1) {
-          const neighbourX = x + CX[direction]!;
-          let neighbourY = y + CY[direction]!;
-          if (
-            (neighbourY < 0 || neighbourY >= this.height) &&
-            this.boundaries.lateral === "periodic"
-          ) {
-            neighbourY = (neighbourY + this.height) % this.height;
-          }
-          if (
-            neighbourX < 0 ||
-            neighbourX >= this.width ||
-            neighbourY < 0 ||
-            neighbourY >= this.height
-          ) {
-            continue;
-          }
-          const link = base + direction;
-          const neighbour = this.cell(neighbourX, neighbourY);
-          if (this.solid[neighbour] === 0) {
-            this.streamTarget[link] = neighbour * 9 + direction;
-            continue;
-          }
-          this.streamTarget[link] = -2;
-          bounceLinks.push(link);
-          if (this.cutFraction[link]! < 0.5) {
-            const away = this.cell(x - CX[direction]!, y - CY[direction]!);
-            this.bounceAway[link] = away * 9 + direction;
-          }
-        }
-      }
-    }
-    return Int32Array.from(bounceLinks);
   }
 
   private applyWakePerturbation(amplitude: number): void {
@@ -971,13 +849,7 @@ function equilibrium(
   velocityX: number,
   velocityY: number,
 ): number {
-  const projection = CX[direction]! * velocityX + CY[direction]! * velocityY;
-  const velocitySquared = velocityX * velocityX + velocityY * velocityY;
-  return (
-    WEIGHTS[direction]! *
-    density *
-    (1 + 3 * projection + 4.5 * projection * projection - 1.5 * velocitySquared)
-  );
+  return equilibriumPopulation(direction, density, velocityX, velocityY);
 }
 
 function macroscopic(

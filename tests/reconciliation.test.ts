@@ -130,6 +130,33 @@ describe("cross-run reconciliation", () => {
       status: "fail",
       failures: [expect.stringContaining("identical scenario, protocol")],
     });
+
+    const reorderedConfiguration: ValidationManifest = {
+      ...gpuManifest,
+      cases: gpuManifest.cases.map((result) => ({
+        ...result,
+        configuration: {
+          collision: result.configuration.collision,
+          cylinder: result.configuration.cylinder,
+          domain: result.configuration.domain,
+          boundaries: result.configuration.boundaries,
+          precision: result.configuration.precision,
+          qualityTier: result.configuration.qualityTier,
+          backendId: result.configuration.backendId,
+        },
+      })),
+    };
+    expect(
+      reconcileBackendManifests(
+        {
+          id: "cpu-gpu-parity",
+          caseIds: ["re20-grid-32"],
+          maximumRelativeChange: { meanDragCoefficient: 0.01 },
+        },
+        cpuManifest,
+        reorderedConfiguration,
+      ),
+    ).toMatchObject({ status: "pass", failures: [] });
   });
 
   it("identifies cylinder placement as the cause of a failed comparison", async () => {
