@@ -6,6 +6,7 @@ export const FIXED_NORMALISED_VORTICITY_LIMIT = 2;
 const NEGATIVE = [43, 108, 176] as const;
 const NEUTRAL = [23, 26, 31] as const;
 const POSITIVE = [221, 107, 32] as const;
+const CYLINDER = [232, 235, 238] as const;
 
 export function normalisedVorticityColour(value: number): string {
   const [red, green, blue] = normalisedVorticityRgb(value);
@@ -97,6 +98,7 @@ export class WakeRasterRenderer {
 
   private composeFrame(field: CpuFlowFieldView, tracersEnabled: boolean): RasterWakeFrame {
     const frame = rasteriseWakeField(field);
+    drawRasterCylinder(frame, field);
     if (tracersEnabled) drawRasterTracerTails(frame, this.tracers);
     drawRasterDomainContext(frame);
     return frame;
@@ -220,6 +222,7 @@ export class WakeRenderer {
     this.context.fillText("x/D →", this.canvas.width - 52 * this.viewport.pixelRatio, this.canvas.height - 10 * this.viewport.pixelRatio);
     this.context.fillText("y/D", 10 * this.viewport.pixelRatio, 18 * this.viewport.pixelRatio);
     this.context.strokeStyle = "rgba(247, 250, 252, 0.65)";
+    this.context.fillStyle = "rgb(232, 235, 238)";
     this.context.lineWidth = Math.max(1, this.viewport.pixelRatio);
     this.context.beginPath();
     this.context.arc(
@@ -229,6 +232,7 @@ export class WakeRenderer {
       0,
       2 * Math.PI,
     );
+    this.context.fill();
     this.context.stroke();
   }
 }
@@ -285,7 +289,7 @@ export function rasteriseWakeField(field: CpuFlowFieldView): RasterWakeFrame {
       const pixel = cell * 4;
       const colour =
         field.solid[cell] === 1
-          ? ([232, 235, 238] as const)
+          ? NEUTRAL
           : normalisedVorticityRgb(normalisedVorticity(field, x, y));
       pixels[pixel] = colour[0];
       pixels[pixel + 1] = colour[1];
@@ -294,6 +298,39 @@ export function rasteriseWakeField(field: CpuFlowFieldView): RasterWakeFrame {
     }
   }
   return { width: field.width, height: field.height, pixels };
+}
+
+function drawRasterCylinder(frame: RasterWakeFrame, field: CpuFlowFieldView): void {
+  const radius = field.cylinderDiameter / 2;
+  const minimumX = Math.max(0, Math.floor(field.cylinderCenterX - radius - 1));
+  const maximumX = Math.min(frame.width - 1, Math.ceil(field.cylinderCenterX + radius + 1));
+  const minimumY = Math.max(0, Math.floor(field.cylinderCenterY - radius - 1));
+  const maximumY = Math.min(frame.height - 1, Math.ceil(field.cylinderCenterY + radius + 1));
+  const samplesPerAxis = 4;
+  const sampleCount = samplesPerAxis * samplesPerAxis;
+  for (let y = minimumY; y <= maximumY; y += 1) {
+    for (let x = minimumX; x <= maximumX; x += 1) {
+      let covered = 0;
+      for (let sampleY = 0; sampleY < samplesPerAxis; sampleY += 1) {
+        for (let sampleX = 0; sampleX < samplesPerAxis; sampleX += 1) {
+          const offsetX = x + (sampleX + 0.5) / samplesPerAxis - field.cylinderCenterX;
+          const offsetY = y + (sampleY + 0.5) / samplesPerAxis - field.cylinderCenterY;
+          if (offsetX * offsetX + offsetY * offsetY <= radius * radius) covered += 1;
+        }
+      }
+      if (covered > 0) {
+        blendPixel(
+          frame.pixels,
+          frame.width,
+          frame.height,
+          x,
+          y,
+          CYLINDER,
+          covered / sampleCount,
+        );
+      }
+    }
+  }
 }
 
 function paintPixel(

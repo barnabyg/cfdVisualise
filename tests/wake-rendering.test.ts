@@ -44,6 +44,11 @@ describe("wake rendering", () => {
     expect(frame).toMatchObject({ width: 32, height: 16 });
     expect(frame?.pixels).toHaveLength(32 * 16 * 4);
     expect(frame?.pixels.some((value) => value === 245)).toBe(true);
+    const cylinderCentre = (8 * 32 + 8) * 4;
+    expect(frame?.pixels[cylinderCentre]).toBeGreaterThan(220);
+    expect(
+      frame?.pixels.some((value) => value > 23 && value < 220),
+    ).toBe(true);
     expect(renderer.captureStill(field, true)).toMatchObject({ type: "image/bmp" });
   });
 });
