@@ -49,6 +49,9 @@ export {
 export {
   GRID_AND_PLACEMENT_CONVERGENCE_VALIDATION_SUITE,
 } from "./grid-convergence-reference.js";
+export {
+  DOMAIN_AND_BOUNDARY_VALIDATION_SUITE,
+} from "./domain-boundary-reference.js";
 export type * from "./reference-catalogue.js";
 export type * from "./manifest-consumers.js";
 export type * from "./metrics.js";

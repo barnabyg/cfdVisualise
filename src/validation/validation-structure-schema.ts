@@ -6,7 +6,105 @@ export function createValidationStructureValidators(
   primitives: SchemaPrimitives,
   createError: SchemaErrorFactory,
 ) {
-  const { finite, nonNegative, oneOf, positive, record, text } = primitives;
+  const { array, finite, nonNegative, oneOf, positive, record, text } = primitives;
+
+  function validateEvidenceScope(value: unknown, location: string): void {
+    const scope = record(value, location);
+    const domain = record(scope.selectedProductionDomain, `${location} production domain`);
+    positive(domain.upstreamDiameters, `${location} upstream extent`);
+    positive(domain.downstreamDiameters, `${location} downstream extent`);
+    positive(domain.lateralDiameters, `${location} lateral extent`);
+
+    const boundaries = record(
+      scope.selectedProductionBoundaries,
+      `${location} production boundaries`,
+    );
+    oneOf(boundaries.inlet, ["regularized-velocity"], `${location} production inlet boundary`);
+    oneOf(boundaries.lateral, ["free-slip"], `${location} production lateral boundary`);
+    oneOf(boundaries.outlet, ["fixed-density-nee"], `${location} production outlet boundary`);
+    oneOf(boundaries.cylinder, ["linear-bfl"], `${location} production cylinder boundary`);
+
+    const benchmarkRoles = array(scope.benchmarkRoles, `${location} benchmark roles`);
+    if (benchmarkRoles.length === 0) {
+      throw createError(`${location} needs at least one benchmark role.`);
+    }
+    const declaredRoles = new Map<string, unknown>();
+    benchmarkRoles.forEach((value, index) => {
+      const benchmark = record(value, `${location} benchmark ${index}`);
+      const id = text(benchmark.id, `${location} benchmark ${index} id`);
+      if (declaredRoles.has(id)) {
+        throw createError(`${location} benchmark ${id} must be declared exactly once.`);
+      }
+      declaredRoles.set(id, benchmark.role);
+    });
+    if (declaredRoles.get("open-cylinder-wake") !== "product-validation") {
+      throw createError(`${location} open-cylinder-wake benchmark must be product-validation.`);
+    }
+    if (declaredRoles.get("confined-channel") !== "solver-regression") {
+      throw createError(`${location} confined-channel benchmark must be solver-regression.`);
+    }
+    if (declaredRoles.size !== 2) {
+      throw createError(`${location} may only declare the accepted open-cylinder and confined-channel benchmarks.`);
+    }
+  }
+
+  function validateSamplingProtocol(
+    value: unknown,
+    location: string,
+    targetReynoldsNumber: number,
+  ): void {
+    const protocol = record(value, `${location} protocol`);
+    const warmUpFlowThroughTime = nonNegative(
+      protocol.warmUpFlowThroughTime,
+      `${location} warm-up window`,
+    );
+    positive(protocol.sampleFlowThroughTime, `${location} sample window`);
+    const sampleInterval = positive(protocol.sampleInterval, `${location} sample interval`);
+    if (protocol.minimumStableCycles !== undefined) {
+      positive(protocol.minimumStableCycles, `${location} minimum stable cycles`);
+    }
+    if (protocol.reynoldsChange === undefined) {
+      return;
+    }
+
+    const change = record(protocol.reynoldsChange, `${location} Reynolds change`);
+    const initialReynoldsNumber = positive(
+      change.initialReynoldsNumber,
+      `${location} initial Reynolds number`,
+    );
+    const atFlowThroughTime = positive(
+      change.atFlowThroughTime,
+      `${location} Reynolds-change time`,
+    );
+    const rampFlowThroughTime = positive(
+      change.rampFlowThroughTime,
+      `${location} Reynolds-change ramp window`,
+    );
+    const observationFlowThroughTime = positive(
+      change.observationFlowThroughTime,
+      `${location} Reynolds-change observation window`,
+    );
+    if (initialReynoldsNumber === targetReynoldsNumber) {
+      throw createError(`${location} Reynolds change must change the Reynolds number.`);
+    }
+    if (
+      atFlowThroughTime + rampFlowThroughTime + observationFlowThroughTime >
+      warmUpFlowThroughTime
+    ) {
+      throw createError(
+        `${location} Reynolds-change ramp and observation must finish during warm-up.`,
+      );
+    }
+    for (const [label, duration] of [
+      ["change time", atFlowThroughTime],
+      ["ramp window", rampFlowThroughTime],
+      ["observation window", observationFlowThroughTime],
+    ] as const) {
+      if (Math.abs(duration / sampleInterval - Math.round(duration / sampleInterval)) > 1e-9) {
+        throw createError(`${location} Reynolds ${label} must align with the sample interval.`);
+      }
+    }
+  }
 
   function validateNumericalConfiguration(value: unknown, location: string): void {
     const configuration = record(value, location);
@@ -93,7 +191,9 @@ export function createValidationStructureValidators(
 
   return {
     validateClassificationThresholds,
+    validateEvidenceScope,
     validateNumericalConfiguration,
     validateRange,
+    validateSamplingProtocol,
   };
 }

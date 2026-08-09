@@ -27,6 +27,12 @@ const OBSERVABLE_METRICS = [
   "nonPositiveDensityCount",
   "fluxResidual",
   "upstreamReflection",
+  "startupUpstreamReflection",
+  "reynoldsChangeUpstreamReflection",
+  "startupMeanDensityDrift",
+  "startupFluxResidual",
+  "reynoldsChangeMeanDensityDrift",
+  "reynoldsChangeFluxResidual",
   "fieldResidual",
   "symmetryError",
 ] as const;
@@ -50,11 +56,16 @@ const {
   text,
   versionedRecord,
 } = primitives;
-const { validateClassificationThresholds, validateNumericalConfiguration, validateRange } =
-  createValidationStructureValidators(
-    primitives,
-    (message) => new ValidationContractSchemaError(message),
-  );
+const {
+  validateClassificationThresholds,
+  validateEvidenceScope,
+  validateNumericalConfiguration,
+  validateRange,
+  validateSamplingProtocol,
+} = createValidationStructureValidators(
+  primitives,
+  (message) => new ValidationContractSchemaError(message),
+);
 
 export function parseValidationSuite(input: unknown): ValidationSuite {
   const suite = versionedRecord(input, "Validation suite");
@@ -68,6 +79,9 @@ export function parseValidationSuite(input: unknown): ValidationSuite {
   array(suite.reconciliations, "Validation suite reconciliations").forEach(
     validateReconciliationDefinition,
   );
+  if (suite.evidenceScope !== undefined) {
+    validateEvidenceScope(suite.evidenceScope, "Validation suite evidence scope");
+  }
   return input as ValidationSuite;
 }
 
@@ -113,7 +127,7 @@ function validateCaseDefinition(value: unknown, index: number): void {
     definition.configuration,
     `${location} configuration`,
   );
-  validateProtocol(definition.protocol, location);
+  validateSamplingProtocol(definition.protocol, location, reynoldsNumber);
   validateHealth(definition.health, location);
   validateClassificationThresholds(definition.classification, location);
 
@@ -160,16 +174,6 @@ function validateCaseDefinition(value: unknown, index: number): void {
   });
   if (definition.cohort !== undefined) {
     text(definition.cohort, `${location} cohort`);
-  }
-}
-
-function validateProtocol(value: unknown, caseLocation: string): void {
-  const protocol = record(value, `${caseLocation} protocol`);
-  nonNegative(protocol.warmUpFlowThroughTime, `${caseLocation} warm-up window`);
-  positive(protocol.sampleFlowThroughTime, `${caseLocation} sample window`);
-  positive(protocol.sampleInterval, `${caseLocation} sample interval`);
-  if (protocol.minimumStableCycles !== undefined) {
-    positive(protocol.minimumStableCycles, `${caseLocation} minimum stable cycles`);
   }
 }
 

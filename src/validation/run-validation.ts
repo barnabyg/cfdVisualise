@@ -38,6 +38,9 @@ export async function runValidation(
       id: suite.id,
       schemaVersion: suite.schemaVersion,
       metricVersions: sortedRecord(suite.metricVersions),
+      ...(suite.evidenceScope === undefined
+        ? {}
+        : { evidenceScope: suite.evidenceScope }),
     },
     backend: backend.identity,
     status:
@@ -98,6 +101,9 @@ function reconcile(
       });
       continue;
     }
+    const changedConfiguration = configurationChange(definition, baseline, comparison);
+    const changedConfigurationPrefix =
+      changedConfiguration === undefined ? "" : `${changedConfiguration}; `;
     const missingMetricFailures: string[] = [];
     const thresholdFailures: string[] = [];
     for (const [metric, maximumChange] of Object.entries(
@@ -110,7 +116,7 @@ function reconcile(
       const comparisonValue = comparison.metrics[metric]?.measured;
       if (baselineValue === undefined || comparisonValue === undefined) {
         missingMetricFailures.push(
-          `${label}: ${metric} measured delta unavailable between ${baseline.caseId} and ${comparison.caseId}; allowed delta ${maximumChange}.`,
+          `${label}: ${changedConfigurationPrefix}${metric} measured delta unavailable between ${baseline.caseId} and ${comparison.caseId}; allowed delta ${maximumChange}.`,
         );
         continue;
       }
@@ -127,19 +133,19 @@ function reconcile(
       };
       if (status === "fail") {
         thresholdFailures.push(
-          `${label}: ${metric} changed by ${formatNumber(relativeChange)} between ${baseline.caseId} (${baselineValue}) and ${comparison.caseId} (${comparisonValue}); maximum ${maximumChange}.`,
+          `${label}: ${changedConfigurationPrefix}${metric} changed by ${formatNumber(relativeChange)} between ${baseline.caseId} (${baselineValue}) and ${comparison.caseId} (${comparisonValue}); maximum ${maximumChange}.`,
         );
       }
     }
 
     if (baseline.status !== "pass" || comparison.status !== "pass") {
       comparisonFailures.push(
-        `${label} cannot compare ${baseline.caseId} with ${comparison.caseId} because an input case failed; ${metricGateSummary(definition, metricComparisons)}.`,
+        `${label} cannot compare ${baseline.caseId} with ${comparison.caseId} because an input case failed; ${changedConfigurationPrefix}${metricGateSummary(definition, metricComparisons)}.`,
       );
     } else {
       if (definition.requireSameRegime && baseline.regime !== comparison.regime) {
         comparisonFailures.push(
-          `${label} changed regime from ${baseline.regime} in ${baseline.caseId} to ${comparison.regime} in ${comparison.caseId}; ${metricGateSummary(definition, metricComparisons)}.`,
+          `${label} changed regime from ${baseline.regime} in ${baseline.caseId} to ${comparison.regime} in ${comparison.caseId}; ${changedConfigurationPrefix}${metricGateSummary(definition, metricComparisons)}.`,
         );
       }
       comparisonFailures.push(...missingMetricFailures, ...thresholdFailures);
@@ -163,6 +169,42 @@ function reconcile(
     status: failures.length === 0 ? "pass" : "fail",
     failures,
   };
+}
+
+function configurationChange(
+  definition: ReconciliationDefinition,
+  baseline: CaseManifest,
+  comparison: CaseManifest,
+): string | undefined {
+  if (definition.kind === "domain") {
+    return changedFields(
+      baseline.configuration.domain,
+      comparison.configuration.domain,
+      ["upstreamDiameters", "downstreamDiameters", "lateralDiameters"],
+    );
+  }
+  if (definition.kind === "boundary") {
+    return changedFields(
+      baseline.configuration.boundaries,
+      comparison.configuration.boundaries,
+      ["inlet", "lateral", "outlet", "cylinder"],
+    );
+  }
+  return undefined;
+}
+
+function changedFields<T extends object, K extends keyof T>(
+  baseline: T,
+  comparison: T,
+  fields: readonly K[],
+): string {
+  const changes = fields
+    .filter((field) => baseline[field] !== comparison[field])
+    .map(
+      (field) =>
+        `${String(field)} changed from ${String(baseline[field])} to ${String(comparison[field])}`,
+    );
+  return changes.length === 0 ? "declared configuration did not change" : changes.join(", ");
 }
 
 function reconciliationLabel(definition: ReconciliationDefinition): string {
@@ -243,6 +285,7 @@ async function runCase(
     definition,
     warmUpEnd,
     sampleWindow,
+    samples,
     measuredRegime,
     failures,
   );
@@ -368,6 +411,7 @@ function calculateMetrics(
   definition: ValidationCaseDefinition,
   warmUpEnd: ValidationSample | undefined,
   samples: readonly ValidationSample[],
+  allSamples: readonly ValidationSample[],
   regime: FlowRegime | undefined,
   caseFailures: string[],
 ): Readonly<Record<string, MetricEvidence>> {
@@ -430,6 +474,41 @@ function calculateMetrics(
     ),
     liftRms: rootMeanSquare(samples.map((sample) => sample.liftCoefficient)),
   };
+  const reynoldsChange = definition.protocol.reynoldsChange;
+  if (reynoldsChange !== undefined) {
+    const startupSamples = allSamples.filter(
+      (sample) => sample.flowThroughTime <= reynoldsChange.atFlowThroughTime,
+    );
+    const observationStart =
+      reynoldsChange.atFlowThroughTime + reynoldsChange.rampFlowThroughTime;
+    const observationEnd =
+      observationStart + reynoldsChange.observationFlowThroughTime;
+    const changedSamples = allSamples.filter(
+      (sample) =>
+        sample.flowThroughTime >= observationStart &&
+        sample.flowThroughTime <= observationEnd,
+    );
+    if (startupSamples.length > 0) {
+      measured.startupUpstreamReflection = maximumAbsoluteReflection(startupSamples);
+      measured.startupMeanDensityDrift = maximumMeanDensityDrift(
+        startupSamples,
+        definition.health.targetDensity,
+      );
+      assignPhaseFluxResidual(measured, "startupFluxResidual", startupSamples);
+    }
+    if (changedSamples.length > 0) {
+      measured.reynoldsChangeUpstreamReflection = maximumAbsoluteReflection(changedSamples);
+      measured.reynoldsChangeMeanDensityDrift = maximumMeanDensityDrift(
+        changedSamples,
+        definition.health.targetDensity,
+      );
+      assignPhaseFluxResidual(
+        measured,
+        "reynoldsChangeFluxResidual",
+        changedSamples,
+      );
+    }
+  }
   const periodic = analyseLiftSignal([warmUpEnd, ...samples], liftThresholds(definition));
   assignFiniteMetric(measured, "periodicCycleCount", periodic.cycles);
   assignFiniteMetric(measured, "dominantFrequency", periodic.dominantFrequency);
@@ -583,6 +662,36 @@ function mean(values: readonly number[]): number {
 
 function rootMeanSquare(values: readonly number[]): number {
   return Math.sqrt(mean(values.map((value) => value * value)));
+}
+
+function maximumAbsoluteReflection(samples: readonly ValidationSample[]): number {
+  return Math.max(...samples.map((sample) => Math.abs(sample.upstreamReflection)));
+}
+
+function maximumMeanDensityDrift(
+  samples: readonly ValidationSample[],
+  targetDensity: number,
+): number {
+  return formatNumber(
+    Math.max(...samples.map((sample) => Math.abs(sample.density.mean - targetDensity))),
+  );
+}
+
+function assignPhaseFluxResidual(
+  measured: Partial<Record<ObservableMetric, number>>,
+  metric: "startupFluxResidual" | "reynoldsChangeFluxResidual",
+  samples: readonly ValidationSample[],
+): void {
+  const first = samples[0];
+  const last = samples.at(-1);
+  if (first === undefined || last === undefined || samples.length < 2) {
+    return;
+  }
+  measured[metric] = reconcileDomainMass({
+    initialMass: first.domainMass,
+    finalMass: last.domainMass,
+    samples,
+  }).normalizedResidual;
 }
 
 function metricLabel(metric: ObservableMetric): string {
