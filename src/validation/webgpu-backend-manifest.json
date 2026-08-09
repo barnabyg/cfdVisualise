@@ -1,0 +1,874 @@
+{
+  "schemaVersion": "1",
+  "suite": {
+    "id": "webgpu-backend-re20-re100-d18-v1",
+    "schemaVersion": "1",
+    "metricVersions": {
+      "convergence": "1",
+      "densityHealth": "1",
+      "drag": "1",
+      "fieldResidual": "1",
+      "fluxBalance": "1",
+      "liftPeriodicity": "2",
+      "recirculationLength": "1",
+      "strouhal": "2",
+      "symmetry": "1",
+      "upstreamReflection": "3"
+    },
+    "evidenceScope": {
+      "selectedProductionDomain": {
+        "upstreamDiameters": 6,
+        "downstreamDiameters": 14,
+        "lateralDiameters": 8
+      },
+      "selectedProductionBoundaries": {
+        "inlet": "regularized-velocity",
+        "lateral": "free-slip",
+        "outlet": "fixed-density-nee",
+        "cylinder": "linear-bfl"
+      },
+      "benchmarkRoles": [
+        {
+          "id": "open-cylinder-wake",
+          "role": "product-validation"
+        },
+        {
+          "id": "confined-channel",
+          "role": "solver-regression"
+        }
+      ]
+    }
+  },
+  "backend": {
+    "schemaVersion": "1",
+    "id": "webgpu-reference",
+    "kind": "webgpu",
+    "solver": "D2Q9 TRT/BFL open-cylinder WebGPU",
+    "solverVersion": "1.0.0",
+    "buildId": "ticket-07"
+  },
+  "status": "pass",
+  "cases": [
+    {
+      "schemaVersion": "1",
+      "caseId": "open-cylinder-re020",
+      "reynoldsNumber": 20,
+      "configuration": {
+        "backendId": "webgpu-reference",
+        "qualityTier": "webgpu-reference-d18",
+        "precision": "float32",
+        "collision": "D2Q9 TRT",
+        "boundaries": {
+          "inlet": "regularized-velocity",
+          "lateral": "free-slip",
+          "outlet": "fixed-density-nee",
+          "cylinder": "linear-bfl"
+        },
+        "domain": {
+          "upstreamDiameters": 6,
+          "downstreamDiameters": 14,
+          "lateralDiameters": 8
+        },
+        "cylinder": {
+          "cellsPerDiameter": 18,
+          "offsetX": 0,
+          "offsetY": 0
+        }
+      },
+      "definition": {
+        "schemaVersion": "1",
+        "physicalScenario": {
+          "flowSpeedMetersPerSecond": 0.002,
+          "cylinderDiameterMeters": 0.01,
+          "kinematicViscositySquareMetersPerSecond": 0.000001
+        },
+        "expectedRegimes": [
+          "steady"
+        ],
+        "protocol": {
+          "warmUpFlowThroughTime": 60,
+          "sampleFlowThroughTime": 4,
+          "sampleInterval": 2
+        },
+        "health": {
+          "targetDensity": 1,
+          "densityRange": {
+            "minimum": 0.95,
+            "maximum": 1.05
+          },
+          "maximumMeanDensityDrift": 0.005,
+          "maximumFluxResidual": 0.005,
+          "maximumUpstreamReflection": 0.01
+        },
+        "classification": {
+          "maximumSteadyFieldResidual": 0.001,
+          "maximumSteadySymmetryError": 0.001,
+          "maximumSteadyLiftRms": 0.005,
+          "maximumSteadyDragRelativeVariation": 0.02,
+          "minimumPeriodicCycles": 4,
+          "maximumPeriodicFrequencyVariation": 0.02,
+          "maximumPeriodicAmplitudeVariation": 0.05
+        }
+      },
+      "status": "pass",
+      "availability": "available",
+      "regime": "steady",
+      "achieved": {
+        "steps": 14400,
+        "flowThroughTime": 64,
+        "warmUpFlowThroughTime": 60,
+        "sampleFlowThroughTime": 4
+      },
+      "metrics": {
+        "densityMinimum": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 0.9910252094268799,
+          "expected": {
+            "minimum": 0.95,
+            "maximum": 1.05
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "cfd-visualise-ticket-02",
+              "url": "https://github.com/barnabyg/cfdVisualise/issues/4",
+              "convention": "Committed Ticket 02 numerical-health and steady-classification release thresholds."
+            }
+          ],
+          "status": "pass"
+        },
+        "densityMaximum": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 1.015518307685852,
+          "expected": {
+            "minimum": 0.95,
+            "maximum": 1.05
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "cfd-visualise-ticket-02",
+              "url": "https://github.com/barnabyg/cfdVisualise/issues/4",
+              "convention": "Committed Ticket 02 numerical-health and steady-classification release thresholds."
+            }
+          ],
+          "status": "pass"
+        },
+        "meanDensity": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 1.0008776783943176,
+          "expected": {
+            "minimum": 0.995,
+            "maximum": 1.005
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "cfd-visualise-ticket-02",
+              "url": "https://github.com/barnabyg/cfdVisualise/issues/4",
+              "convention": "Committed Ticket 02 numerical-health and steady-classification release thresholds."
+            }
+          ],
+          "status": "pass"
+        },
+        "meanDensityDrift": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 0.000877678394318,
+          "expected": {
+            "minimum": 0,
+            "maximum": 0.005
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "cfd-visualise-ticket-02",
+              "url": "https://github.com/barnabyg/cfdVisualise/issues/4",
+              "convention": "Committed Ticket 02 numerical-health and steady-classification release thresholds."
+            }
+          ],
+          "status": "pass"
+        },
+        "nonFiniteValueCount": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 0,
+          "expected": {
+            "minimum": 0,
+            "maximum": 0
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "cfd-visualise-ticket-02",
+              "url": "https://github.com/barnabyg/cfdVisualise/issues/4",
+              "convention": "Committed Ticket 02 numerical-health and steady-classification release thresholds."
+            }
+          ],
+          "status": "pass"
+        },
+        "nonPositiveDensityCount": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 0,
+          "expected": {
+            "minimum": 0,
+            "maximum": 0
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "cfd-visualise-ticket-02",
+              "url": "https://github.com/barnabyg/cfdVisualise/issues/4",
+              "convention": "Committed Ticket 02 numerical-health and steady-classification release thresholds."
+            }
+          ],
+          "status": "pass"
+        },
+        "fluxResidual": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": -0.0006939123576389986,
+          "expected": {
+            "minimum": -0.005,
+            "maximum": 0.005
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "cfd-visualise-ticket-02",
+              "url": "https://github.com/barnabyg/cfdVisualise/issues/4",
+              "convention": "Committed Ticket 02 numerical-health and steady-classification release thresholds."
+            }
+          ],
+          "status": "pass"
+        },
+        "upstreamReflection": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 0.0004392785776872188,
+          "expected": {
+            "minimum": 0,
+            "maximum": 0.01
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "cfd-visualise-ticket-02",
+              "url": "https://github.com/barnabyg/cfdVisualise/issues/4",
+              "convention": "Committed Ticket 02 numerical-health and steady-classification release thresholds."
+            }
+          ],
+          "status": "pass"
+        },
+        "fieldResidual": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 0.0000607422916800715,
+          "expected": {
+            "minimum": 0,
+            "maximum": 0.001
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "cfd-visualise-ticket-02",
+              "url": "https://github.com/barnabyg/cfdVisualise/issues/4",
+              "convention": "Committed Ticket 02 numerical-health and steady-classification release thresholds."
+            }
+          ],
+          "status": "pass"
+        },
+        "symmetryError": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 0.0000018669645669433521,
+          "expected": {
+            "minimum": 0,
+            "maximum": 0.001
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "cfd-visualise-ticket-02",
+              "url": "https://github.com/barnabyg/cfdVisualise/issues/4",
+              "convention": "Committed Ticket 02 numerical-health and steady-classification release thresholds."
+            }
+          ],
+          "status": "pass"
+        },
+        "meanDragCoefficient": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 2.2611883878707886,
+          "expected": {
+            "minimum": 2,
+            "maximum": 2.2
+          },
+          "tolerance": 0.1,
+          "sources": [
+            {
+              "id": "dennis-chang-1970",
+              "url": "https://doi.org/10.1017/S0022112070001428",
+              "convention": "Unconfined two-dimensional cylinder; drag uses 0.5 rho U^2 D and wake length is measured downstream from the cylinder rear surface."
+            },
+            {
+              "id": "bouzidi-firdaouss-lallemand-2001",
+              "url": "https://doi.org/10.1063/1.1399290",
+              "convention": "Linear interpolated curved-wall bounce-back with link-wise momentum transfer."
+            }
+          ],
+          "status": "pass"
+        },
+        "dragRelativeVariation": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 0.01499465711680003,
+          "expected": {
+            "minimum": 0,
+            "maximum": 0.02
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "cfd-visualise-ticket-02",
+              "url": "https://github.com/barnabyg/cfdVisualise/issues/4",
+              "convention": "Committed Ticket 02 numerical-health and steady-classification release thresholds."
+            }
+          ],
+          "status": "pass"
+        },
+        "liftRms": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 0.000006226263419946182,
+          "expected": {
+            "minimum": 0,
+            "maximum": 0.005
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "cfd-visualise-ticket-02",
+              "url": "https://github.com/barnabyg/cfdVisualise/issues/4",
+              "convention": "Committed Ticket 02 numerical-health and steady-classification release thresholds."
+            }
+          ],
+          "status": "pass"
+        },
+        "recirculationLength": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 0.9628995060920715,
+          "expected": {
+            "minimum": 0.85,
+            "maximum": 1.05
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "dennis-chang-1970",
+              "url": "https://doi.org/10.1017/S0022112070001428",
+              "convention": "Unconfined two-dimensional cylinder; drag uses 0.5 rho U^2 D and wake length is measured downstream from the cylinder rear surface."
+            }
+          ],
+          "status": "pass"
+        },
+        "strouhalNumber": {
+          "schemaVersion": "1",
+          "applicability": "inapplicable",
+          "status": "not-assessed",
+          "message": "Strouhal number is inapplicable without a stable periodic lift signal."
+        }
+      },
+      "failures": []
+    },
+    {
+      "schemaVersion": "1",
+      "caseId": "open-cylinder-re100",
+      "reynoldsNumber": 100,
+      "configuration": {
+        "backendId": "webgpu-reference",
+        "qualityTier": "webgpu-reference-d18",
+        "precision": "float32",
+        "latticeSpeed": 0.08,
+        "initialTransversePerturbation": 0.001,
+        "upstreamReflectionMode": "streamwise-from-inlet",
+        "collision": "D2Q9 TRT",
+        "boundaries": {
+          "inlet": "regularized-velocity",
+          "lateral": "free-slip",
+          "outlet": "fixed-density-nee",
+          "cylinder": "linear-bfl"
+        },
+        "domain": {
+          "upstreamDiameters": 6,
+          "downstreamDiameters": 14,
+          "lateralDiameters": 8
+        },
+        "cylinder": {
+          "cellsPerDiameter": 18,
+          "offsetX": 0,
+          "offsetY": 0
+        }
+      },
+      "definition": {
+        "schemaVersion": "1",
+        "physicalScenario": {
+          "flowSpeedMetersPerSecond": 0.01,
+          "cylinderDiameterMeters": 0.01,
+          "kinematicViscositySquareMetersPerSecond": 0.000001
+        },
+        "expectedRegimes": [
+          "periodically-shedding"
+        ],
+        "protocol": {
+          "warmUpFlowThroughTime": 64,
+          "sampleFlowThroughTime": 32,
+          "sampleInterval": 0.4,
+          "minimumStableCycles": 4
+        },
+        "health": {
+          "targetDensity": 1,
+          "densityRange": {
+            "minimum": 0.9,
+            "maximum": 1.1
+          },
+          "maximumMeanDensityDrift": 0.01,
+          "maximumFluxResidual": 0.01,
+          "maximumUpstreamReflection": 0.02
+        },
+        "classification": {
+          "maximumSteadyFieldResidual": 0.001,
+          "maximumSteadySymmetryError": 0.001,
+          "maximumSteadyLiftRms": 0.01,
+          "maximumSteadyDragRelativeVariation": 0.02,
+          "minimumPeriodicCycles": 4,
+          "minimumPeriodicAmplitude": 0.1,
+          "maximumPeriodicFrequencyVariation": 0.05,
+          "maximumPeriodicAmplitudeVariation": 0.1
+        }
+      },
+      "status": "pass",
+      "availability": "available",
+      "regime": "periodically-shedding",
+      "achieved": {
+        "steps": 21600,
+        "flowThroughTime": 96,
+        "warmUpFlowThroughTime": 64,
+        "sampleFlowThroughTime": 32
+      },
+      "metrics": {
+        "densityMinimum": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 0.9848169684410095,
+          "expected": {
+            "minimum": 0.9,
+            "maximum": 1.1
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "cfd-visualise-ticket-03",
+              "url": "https://github.com/barnabyg/cfdVisualise/issues/5",
+              "convention": "Committed Ticket 03 thresholds; warm-up spans at least nine cycles at the lower published Strouhal bound and sampling spans at least four."
+            }
+          ],
+          "status": "pass"
+        },
+        "densityMaximum": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 1.0174840688705444,
+          "expected": {
+            "minimum": 0.9,
+            "maximum": 1.1
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "cfd-visualise-ticket-03",
+              "url": "https://github.com/barnabyg/cfdVisualise/issues/5",
+              "convention": "Committed Ticket 03 thresholds; warm-up spans at least nine cycles at the lower published Strouhal bound and sampling spans at least four."
+            }
+          ],
+          "status": "pass"
+        },
+        "meanDensity": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 1.0001021407544612,
+          "expected": {
+            "minimum": 0.99,
+            "maximum": 1.01
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "cfd-visualise-ticket-03",
+              "url": "https://github.com/barnabyg/cfdVisualise/issues/5",
+              "convention": "Committed Ticket 03 thresholds; warm-up spans at least nine cycles at the lower published Strouhal bound and sampling spans at least four."
+            }
+          ],
+          "status": "pass"
+        },
+        "meanDensityDrift": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 0.000102140754461,
+          "expected": {
+            "minimum": 0,
+            "maximum": 0.01
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "cfd-visualise-ticket-03",
+              "url": "https://github.com/barnabyg/cfdVisualise/issues/5",
+              "convention": "Committed Ticket 03 thresholds; warm-up spans at least nine cycles at the lower published Strouhal bound and sampling spans at least four."
+            }
+          ],
+          "status": "pass"
+        },
+        "nonFiniteValueCount": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 0,
+          "expected": {
+            "minimum": 0,
+            "maximum": 0
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "cfd-visualise-ticket-03",
+              "url": "https://github.com/barnabyg/cfdVisualise/issues/5",
+              "convention": "Committed Ticket 03 thresholds; warm-up spans at least nine cycles at the lower published Strouhal bound and sampling spans at least four."
+            }
+          ],
+          "status": "pass"
+        },
+        "nonPositiveDensityCount": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 0,
+          "expected": {
+            "minimum": 0,
+            "maximum": 0
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "cfd-visualise-ticket-03",
+              "url": "https://github.com/barnabyg/cfdVisualise/issues/5",
+              "convention": "Committed Ticket 03 thresholds; warm-up spans at least nine cycles at the lower published Strouhal bound and sampling spans at least four."
+            }
+          ],
+          "status": "pass"
+        },
+        "fluxResidual": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": -0.0003393286363461076,
+          "expected": {
+            "minimum": -0.01,
+            "maximum": 0.01
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "cfd-visualise-ticket-03",
+              "url": "https://github.com/barnabyg/cfdVisualise/issues/5",
+              "convention": "Committed Ticket 03 thresholds; warm-up spans at least nine cycles at the lower published Strouhal bound and sampling spans at least four."
+            }
+          ],
+          "status": "pass"
+        },
+        "upstreamReflection": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 0.0015057655982673168,
+          "expected": {
+            "minimum": 0,
+            "maximum": 0.02
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "cfd-visualise-ticket-03",
+              "url": "https://github.com/barnabyg/cfdVisualise/issues/5",
+              "convention": "Committed Ticket 03 thresholds; warm-up spans at least nine cycles at the lower published Strouhal bound and sampling spans at least four."
+            }
+          ],
+          "status": "pass"
+        },
+        "meanDragCoefficient": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 1.418913509696722,
+          "expected": {
+            "minimum": 1.25,
+            "maximum": 1.45
+          },
+          "tolerance": 0.1,
+          "sources": [
+            {
+              "id": "linnick-fasel-2005",
+              "url": "https://doi.org/10.1016/j.jcp.2004.09.017",
+              "convention": "Unconfined two-dimensional cylinder at Re=100; force coefficients use 0.5 rho U^2 D and Strouhal uses fD/U."
+            },
+            {
+              "id": "taira-colonius-2007",
+              "url": "https://doi.org/10.1016/j.jcp.2007.03.005",
+              "convention": "Unconfined two-dimensional Re=100 cylinder benchmark for mean drag, periodic lift, and shedding frequency."
+            },
+            {
+              "id": "bouzidi-firdaouss-lallemand-2001",
+              "url": "https://doi.org/10.1063/1.1399290",
+              "convention": "Linear interpolated curved-wall bounce-back with link-wise momentum transfer."
+            }
+          ],
+          "status": "pass"
+        },
+        "liftRms": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 0.22800421140608504,
+          "expected": {
+            "minimum": 0.15,
+            "maximum": 0.3
+          },
+          "tolerance": 0.05,
+          "sources": [
+            {
+              "id": "linnick-fasel-2005",
+              "url": "https://doi.org/10.1016/j.jcp.2004.09.017",
+              "convention": "Unconfined two-dimensional cylinder at Re=100; force coefficients use 0.5 rho U^2 D and Strouhal uses fD/U."
+            },
+            {
+              "id": "taira-colonius-2007",
+              "url": "https://doi.org/10.1016/j.jcp.2007.03.005",
+              "convention": "Unconfined two-dimensional Re=100 cylinder benchmark for mean drag, periodic lift, and shedding frequency."
+            }
+          ],
+          "status": "pass"
+        },
+        "periodicCycleCount": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 5.5517840182519365,
+          "expected": {
+            "minimum": 4,
+            "maximum": 10
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "cfd-visualise-ticket-03",
+              "url": "https://github.com/barnabyg/cfdVisualise/issues/5",
+              "convention": "Committed Ticket 03 thresholds; warm-up spans at least nine cycles at the lower published Strouhal bound and sampling spans at least four."
+            }
+          ],
+          "status": "pass"
+        },
+        "dominantFrequency": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 0.17349325057037301,
+          "expected": {
+            "minimum": 0.15,
+            "maximum": 0.18
+          },
+          "tolerance": 0.02,
+          "sources": [
+            {
+              "id": "linnick-fasel-2005",
+              "url": "https://doi.org/10.1016/j.jcp.2004.09.017",
+              "convention": "Unconfined two-dimensional cylinder at Re=100; force coefficients use 0.5 rho U^2 D and Strouhal uses fD/U."
+            },
+            {
+              "id": "taira-colonius-2007",
+              "url": "https://doi.org/10.1016/j.jcp.2007.03.005",
+              "convention": "Unconfined two-dimensional Re=100 cylinder benchmark for mean drag, periodic lift, and shedding frequency."
+            }
+          ],
+          "status": "pass"
+        },
+        "frequencyVariation": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 0.0010872735360891522,
+          "expected": {
+            "minimum": 0,
+            "maximum": 0.05
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "cfd-visualise-ticket-03",
+              "url": "https://github.com/barnabyg/cfdVisualise/issues/5",
+              "convention": "Committed Ticket 03 thresholds; warm-up spans at least nine cycles at the lower published Strouhal bound and sampling spans at least four."
+            }
+          ],
+          "status": "pass"
+        },
+        "amplitudeVariation": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 0.04168508036492424,
+          "expected": {
+            "minimum": 0,
+            "maximum": 0.1
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "cfd-visualise-ticket-03",
+              "url": "https://github.com/barnabyg/cfdVisualise/issues/5",
+              "convention": "Committed Ticket 03 thresholds; warm-up spans at least nine cycles at the lower published Strouhal bound and sampling spans at least four."
+            }
+          ],
+          "status": "pass"
+        },
+        "frequencyUncertainty": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 0.015625,
+          "expected": {
+            "minimum": 0,
+            "maximum": 0.02
+          },
+          "tolerance": 0,
+          "sources": [
+            {
+              "id": "cfd-visualise-ticket-03",
+              "url": "https://github.com/barnabyg/cfdVisualise/issues/5",
+              "convention": "Committed Ticket 03 thresholds; warm-up spans at least nine cycles at the lower published Strouhal bound and sampling spans at least four."
+            }
+          ],
+          "status": "pass"
+        },
+        "strouhalNumber": {
+          "schemaVersion": "1",
+          "applicability": "applicable",
+          "measured": 0.17349325057037301,
+          "expected": {
+            "minimum": 0.15,
+            "maximum": 0.18
+          },
+          "tolerance": 0.02,
+          "sources": [
+            {
+              "id": "linnick-fasel-2005",
+              "url": "https://doi.org/10.1016/j.jcp.2004.09.017",
+              "convention": "Unconfined two-dimensional cylinder at Re=100; force coefficients use 0.5 rho U^2 D and Strouhal uses fD/U."
+            },
+            {
+              "id": "taira-colonius-2007",
+              "url": "https://doi.org/10.1016/j.jcp.2007.03.005",
+              "convention": "Unconfined two-dimensional Re=100 cylinder benchmark for mean drag, periodic lift, and shedding frequency."
+            }
+          ],
+          "status": "pass"
+        }
+      },
+      "failures": []
+    }
+  ],
+  "reconciliations": [
+    {
+      "schemaVersion": "1",
+      "id": "cpu-webgpu-re20-re100-v1",
+      "kind": "backend",
+      "baselineCaseId": "matched-backend-cases",
+      "comparisons": [
+        {
+          "comparisonCaseId": "open-cylinder-re020",
+          "baselineBackendId": "cpu-reference",
+          "comparisonBackendId": "webgpu-reference",
+          "baselineBackendKind": "cpu-worker",
+          "comparisonBackendKind": "webgpu",
+          "baselineRegime": "steady",
+          "comparisonRegime": "steady",
+          "metrics": {
+            "meanDragCoefficient": {
+              "baseline": 2.2611151655728206,
+              "comparison": 2.2611883878707886,
+              "relativeChange": 0.0000323832678153,
+              "maximumRelativeChange": 0.01,
+              "status": "pass"
+            },
+            "recirculationLength": {
+              "baseline": 0.9629885781037455,
+              "comparison": 0.9628995060920715,
+              "relativeChange": 0.0000924953978679,
+              "maximumRelativeChange": 0.02,
+              "status": "pass"
+            },
+            "meanDensity": {
+              "baseline": 1.0008744757289618,
+              "comparison": 1.0008776783943176,
+              "relativeChange": 0.00000319986714965,
+              "maximumRelativeChange": 0.001,
+              "status": "pass"
+            },
+            "fluxResidual": {
+              "baseline": -0.0007425892827215795,
+              "comparison": -0.0006939123576389986,
+              "relativeChange": 0.0655502660962,
+              "maximumRelativeChange": 0.25,
+              "status": "pass"
+            }
+          },
+          "status": "pass"
+        },
+        {
+          "comparisonCaseId": "open-cylinder-re100",
+          "baselineBackendId": "cpu-reference",
+          "comparisonBackendId": "webgpu-reference",
+          "baselineBackendKind": "cpu-worker",
+          "comparisonBackendKind": "webgpu",
+          "baselineRegime": "periodically-shedding",
+          "comparisonRegime": "periodically-shedding",
+          "metrics": {
+            "meanDragCoefficient": {
+              "baseline": 1.41883895668761,
+              "comparison": 1.418913509696722,
+              "relativeChange": 0.0000525450818506,
+              "maximumRelativeChange": 0.01,
+              "status": "pass"
+            },
+            "strouhalNumber": {
+              "baseline": 0.1734694603650406,
+              "comparison": 0.17349325057037301,
+              "relativeChange": 0.000137143479217,
+              "maximumRelativeChange": 0.01,
+              "status": "pass"
+            },
+            "meanDensity": {
+              "baseline": 1.0001013427727283,
+              "comparison": 1.0001021407544612,
+              "relativeChange": 7.97900871427e-7,
+              "maximumRelativeChange": 0.001,
+              "status": "pass"
+            },
+            "fluxResidual": {
+              "baseline": -0.0004025866496630807,
+              "comparison": -0.0003393286363461076,
+              "relativeChange": 0.157128939496,
+              "maximumRelativeChange": 0.25,
+              "status": "pass"
+            }
+          },
+          "status": "pass"
+        }
+      ],
+      "status": "pass",
+      "failures": []
+    }
+  ]
+}

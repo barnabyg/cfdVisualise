@@ -18,6 +18,27 @@ export {
 export { reconcileBackendManifests } from "./backend-parity.js";
 export type * from "./backend-parity.js";
 export {
+  D2Q9_OPEN_CYLINDER_CONTRACT,
+  buildOpenCylinderGeometry,
+  equilibriumPopulation,
+  trtRelaxationRates,
+} from "./d2q9-open-cylinder-contract.js";
+export type * from "./d2q9-open-cylinder-contract.js";
+export {
+  WEBGPU_BACKEND_IDENTITY,
+  WEBGPU_MATCHED_CONFIGURATION_MIN_BUFFER_BYTES,
+  WebGpuExecutionError,
+  collectWebGpuValidationCase,
+  createBrowserWebGpuPlatform,
+  createWebGpuValidationBackend,
+} from "./webgpu-backend.js";
+export type * from "./webgpu-backend.js";
+export {
+  WEBGPU_BACKEND_PARITY_DEFINITION,
+  WEBGPU_BACKEND_VALIDATION_SUITE,
+  WEBGPU_BACKEND_QUALITY_TIER_ID,
+} from "./webgpu-reference.js";
+export {
   parseValidationManifest,
   serializeValidationManifest,
   ValidationManifestSchemaError,

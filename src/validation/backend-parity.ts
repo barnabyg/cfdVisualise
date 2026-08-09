@@ -5,13 +5,31 @@ import {
   type ValidationManifest,
 } from "./types.js";
 
-export interface BackendParityDefinition {
-  readonly id: string;
-  readonly caseIds: readonly string[];
+type BackendParityMetric =
+  | "meanDragCoefficient"
+  | "recirculationLength"
+  | "strouhalNumber"
+  | "meanDensity"
+  | "fluxResidual";
+
+export interface BackendParityCaseDefinition {
+  readonly caseId: string;
   readonly maximumRelativeChange: Readonly<
-    Partial<Record<"meanDragCoefficient" | "recirculationLength" | "strouhalNumber", number>>
+    Partial<Record<BackendParityMetric, number>>
   >;
 }
+
+export type BackendParityDefinition = {
+  readonly id: string;
+} & (
+  | {
+      readonly cases: readonly BackendParityCaseDefinition[];
+    }
+  | {
+      readonly caseIds: readonly string[];
+      readonly maximumRelativeChange: BackendParityCaseDefinition["maximumRelativeChange"];
+    }
+);
 
 export function reconcileBackendManifests(
   definition: BackendParityDefinition,
@@ -41,7 +59,8 @@ export function reconcileBackendManifests(
     failures.push("Backend parity requires identical suite and metric-definition versions.");
   }
 
-  for (const caseId of definition.caseIds) {
+  for (const parityCase of parityCases(definition)) {
+    const caseId = parityCase.caseId;
     const baseline = findCase(baselineManifest, caseId);
     const comparison = findCase(comparisonManifest, caseId);
     const comparisonFailures: string[] = [];
@@ -71,7 +90,7 @@ export function reconcileBackendManifests(
         );
       }
       for (const [metric, maximumRelativeChange] of Object.entries(
-        definition.maximumRelativeChange,
+        parityCase.maximumRelativeChange,
       )) {
         if (maximumRelativeChange === undefined) {
           continue;
@@ -95,7 +114,7 @@ export function reconcileBackendManifests(
         };
         if (status === "fail") {
           comparisonFailures.push(
-            `Backend parity case ${caseId} ${metric} changed by ${relativeChange}; maximum ${maximumRelativeChange}.`,
+            `Backend parity case ${caseId} between ${baselineManifest.backend.id} and ${comparisonManifest.backend.id}: ${metric} measured delta ${relativeChange}; allowed inclusive delta ${maximumRelativeChange}.`,
           );
         }
       }
@@ -133,9 +152,21 @@ function configurationKey(configuration: ValidationManifest["cases"][number]["co
   const {
     backendId: _backendId,
     qualityTier: _qualityTier,
+    precision: _precision,
     ...matchedConfiguration
   } = configuration;
-  return JSON.stringify(matchedConfiguration);
+  return canonicalKey(matchedConfiguration);
+}
+
+function parityCases(
+  definition: BackendParityDefinition,
+): readonly BackendParityCaseDefinition[] {
+  return "cases" in definition
+    ? definition.cases
+    : definition.caseIds.map((caseId) => ({
+        caseId,
+        maximumRelativeChange: definition.maximumRelativeChange,
+      }));
 }
 
 function metricDefinitionKey(
