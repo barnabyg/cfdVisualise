@@ -4,15 +4,22 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "validate:cpu-production": "vite-node scripts/generate-cpu-production-manifest.ts",
+    "test:browser": "node scripts/run-browser-tests.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "verify": "npm run typecheck && npm test"
+    "verify": "npm run typecheck && npm test && npm run build && npm run test:browser"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@testing-library/preact": "^3.2.4",
     "jsdom": "^29.1.1",
     "typescript": "5.9.2",
+    "vite": "^7.3.6",
     "vitest": "^3.2.7"
   },
   "dependencies": {

@@ -51,6 +51,18 @@ export interface CpuReferenceWorkerPort {
 
 export type CpuReferenceWorkerFactory = () => CpuReferenceWorkerPort;
 
+export interface CpuFlowFieldView {
+  readonly width: number;
+  readonly height: number;
+  readonly cylinderDiameter: number;
+  readonly cylinderCenterX: number;
+  readonly cylinderCenterY: number;
+  readonly latticeSpeed: number;
+  readonly solid: Uint8Array;
+  readonly velocityX: Float64Array;
+  readonly velocityY: Float64Array;
+}
+
 export function createCpuReferenceBackend(
   workerFactory: CpuReferenceWorkerFactory = createBrowserCpuReferenceWorker,
 ): SolverBackend {
@@ -211,7 +223,7 @@ function exactStepCount(value: number, label: string): number {
   return rounded;
 }
 
-class D2Q9TrtOpenCylinder {
+export class D2Q9TrtOpenCylinder {
   public readonly cylinderDiameter: number;
   public readonly latticeSpeed: number;
   private readonly initialTransversePerturbation: number;
@@ -230,6 +242,10 @@ class D2Q9TrtOpenCylinder {
   private omegaOdd = 0;
   private readonly solid: Uint8Array;
   private readonly cutFraction: Float64Array;
+  private readonly streamTarget: Int32Array;
+  private readonly bounceAway: Int32Array;
+  private readonly bounceLinks: Int32Array;
+  private readonly retainsPostCollision: Uint8Array;
   private populations: Float64Array;
   private next: Float64Array;
   private readonly postCollision: Float64Array;
@@ -239,6 +255,7 @@ class D2Q9TrtOpenCylinder {
   private readonly previousStepVelocityX: Float64Array;
   private readonly previousStepVelocityY: Float64Array;
   private hasAdvanced = false;
+  private macroscopicFieldsCurrent = false;
 
   public constructor(definition: ValidationCaseDefinition) {
     this.cylinderDiameter = definition.configuration.cylinder.cellsPerDiameter;
@@ -274,6 +291,8 @@ class D2Q9TrtOpenCylinder {
     );
     this.solid = new Uint8Array(this.cellCount);
     this.cutFraction = new Float64Array(this.cellCount * 9);
+    this.streamTarget = new Int32Array(this.cellCount * 9);
+    this.bounceAway = new Int32Array(this.cellCount * 9);
     this.populations = new Float64Array(this.cellCount * 9);
     this.next = new Float64Array(this.cellCount * 9);
     this.postCollision = new Float64Array(this.cellCount * 9);
@@ -283,15 +302,16 @@ class D2Q9TrtOpenCylinder {
     this.previousStepVelocityX = new Float64Array(this.cellCount);
     this.previousStepVelocityY = new Float64Array(this.cellCount);
     this.initializeGeometry();
+    this.bounceLinks = this.initializeStreamingLinks();
+    this.retainsPostCollision = this.initializePostCollisionRetention();
     this.initializeUniformFlow();
   }
 
   public advance(): { readonly x: number; readonly y: number } {
     if (!this.hasAdvanced && this.initialTransversePerturbation > 0) {
-      this.applyInitialTransversePerturbation();
+      this.perturbWake(this.initialTransversePerturbation);
     }
-    this.collide();
-    const force = this.streamAndBounceBack();
+    const force = this.collideAndStream();
     // Later applications own shared corner populations, matching the public precedence contract.
     this.applyLateralBoundary();
     this.applyInletBoundary();
@@ -300,6 +320,7 @@ class D2Q9TrtOpenCylinder {
     this.populations = this.next;
     this.next = previous;
     this.hasAdvanced = true;
+    this.macroscopicFieldsCurrent = false;
     return force;
   }
 
@@ -338,6 +359,28 @@ class D2Q9TrtOpenCylinder {
       ...(recirculationLength === undefined ? {} : { recirculationLength }),
     };
     return sample;
+  }
+
+  public flowField(): CpuFlowFieldView {
+    if (!this.macroscopicFieldsCurrent) this.updateMacroscopicFields();
+    return {
+      width: this.width,
+      height: this.height,
+      cylinderDiameter: this.cylinderDiameter,
+      cylinderCenterX: this.cylinderCenterX,
+      cylinderCenterY: this.cylinderCenterY,
+      latticeSpeed: this.latticeSpeed,
+      solid: this.solid,
+      velocityX: this.velocityX,
+      velocityY: this.velocityY,
+    };
+  }
+
+  public perturbWake(amplitude: number): void {
+    if (!Number.isFinite(amplitude) || amplitude <= 0) {
+      throw new RangeError("Wake perturbation amplitude must be positive and finite.");
+    }
+    this.applyWakePerturbation(amplitude);
   }
 
   private initializeGeometry(): void {
@@ -395,7 +438,68 @@ class D2Q9TrtOpenCylinder {
     }
   }
 
-  private applyInitialTransversePerturbation(): void {
+  private initializePostCollisionRetention(): Uint8Array {
+    const retained = new Uint8Array(this.cellCount);
+    if (this.boundaries.lateral === "free-slip") {
+      for (let x = 0; x < this.width; x += 1) {
+        retained[this.cell(x, 0)] = 1;
+        retained[this.cell(x, this.height - 1)] = 1;
+      }
+    }
+    for (const link of this.bounceLinks) {
+      retained[Math.floor(link / 9)] = 1;
+      const away = this.bounceAway[link]!;
+      if (away >= 0) retained[Math.floor(away / 9)] = 1;
+    }
+    return retained;
+  }
+
+  private initializeStreamingLinks(): Int32Array {
+    const bounceLinks: number[] = [];
+    this.streamTarget.fill(-1);
+    this.bounceAway.fill(-1);
+    for (let y = 0; y < this.height; y += 1) {
+      for (let x = 0; x < this.width; x += 1) {
+        const cell = this.cell(x, y);
+        if (this.solid[cell] === 1) continue;
+        const base = cell * 9;
+        for (let direction = 1; direction < 9; direction += 1) {
+          const neighbourX = x + CX[direction]!;
+          let neighbourY = y + CY[direction]!;
+          if (
+            (neighbourY < 0 || neighbourY >= this.height) &&
+            this.boundaries.lateral === "periodic"
+          ) {
+            neighbourY = (neighbourY + this.height) % this.height;
+          }
+          if (
+            neighbourX < 0 ||
+            neighbourX >= this.width ||
+            neighbourY < 0 ||
+            neighbourY >= this.height
+          ) {
+            continue;
+          }
+          const link = base + direction;
+          const neighbour = this.cell(neighbourX, neighbourY);
+          if (this.solid[neighbour] === 0) {
+            this.streamTarget[link] = neighbour * 9 + direction;
+            continue;
+          }
+          this.streamTarget[link] = -2;
+          bounceLinks.push(link);
+          if (this.cutFraction[link]! < 0.5) {
+            const away = this.cell(x - CX[direction]!, y - CY[direction]!);
+            this.bounceAway[link] = away * 9 + direction;
+          }
+        }
+      }
+    }
+    return Int32Array.from(bounceLinks);
+  }
+
+  private applyWakePerturbation(amplitude: number): void {
+    this.macroscopicFieldsCurrent = false;
     const centreX = this.cylinderRearX + 0.75 * this.cylinderDiameter;
     const centreY = this.cylinderCenterY + 0.25 * this.cylinderDiameter;
     const radius = 0.5 * this.cylinderDiameter;
@@ -415,7 +519,7 @@ class D2Q9TrtOpenCylinder {
         reconstructMacroscopic(this.populations, base, reconstructed);
         const transverseVelocity =
           reconstructed.uy +
-          this.initialTransversePerturbation * Math.exp(-4 * distanceSquared / radiusSquared);
+          amplitude * Math.exp(-4 * distanceSquared / radiusSquared);
         for (let direction = 0; direction < 9; direction += 1) {
           this.populations[base + direction] = equilibrium(
             direction,
@@ -428,95 +532,137 @@ class D2Q9TrtOpenCylinder {
     }
   }
 
-  private collide(): void {
-    const equilibriumValues = new Float64Array(9);
-    const reconstructed = { rho: 0, ux: 0, uy: 0 };
+  private collideAndStream(): { readonly x: number; readonly y: number } {
+    const populations = this.populations;
+    const postCollision = this.postCollision;
+    const next = this.next;
+    const streamTarget = this.streamTarget;
+    const previousVelocityX = this.previousStepVelocityX;
+    const previousVelocityY = this.previousStepVelocityY;
+    const omegaEven = this.omegaEven;
+    const omegaOdd = this.omegaOdd;
+    const retainsPostCollision = this.retainsPostCollision;
+    next.fill(0);
     for (let cell = 0; cell < this.cellCount; cell += 1) {
       if (this.solid[cell] === 1) {
         continue;
       }
       const base = cell * 9;
-      reconstructMacroscopic(this.populations, base, reconstructed);
-      const { rho, ux, uy } = reconstructed;
-      this.previousStepVelocityX[cell] = ux;
-      this.previousStepVelocityY[cell] = uy;
-      for (let direction = 0; direction < 9; direction += 1) {
-        equilibriumValues[direction] = equilibrium(direction, rho, ux, uy);
-      }
-      for (let direction = 0; direction < 9; direction += 1) {
-        const opposite = OPPOSITE[direction]!;
-        const value = this.populations[base + direction]!;
-        const oppositeValue = this.populations[base + opposite]!;
-        const even = 0.5 * (value + oppositeValue);
-        const odd = 0.5 * (value - oppositeValue);
-        const equilibriumEven =
-          0.5 * (equilibriumValues[direction]! + equilibriumValues[opposite]!);
-        const equilibriumOdd =
-          0.5 * (equilibriumValues[direction]! - equilibriumValues[opposite]!);
-        this.postCollision[base + direction] =
-          value -
-          this.omegaEven * (even - equilibriumEven) -
-          this.omegaOdd * (odd - equilibriumOdd);
-      }
-    }
-  }
+      const f0 = populations[base]!;
+      const f1 = populations[base + 1]!;
+      const f2 = populations[base + 2]!;
+      const f3 = populations[base + 3]!;
+      const f4 = populations[base + 4]!;
+      const f5 = populations[base + 5]!;
+      const f6 = populations[base + 6]!;
+      const f7 = populations[base + 7]!;
+      const f8 = populations[base + 8]!;
+      const rho = f0 + f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8;
+      const ux = (f1 - f3 + f5 - f6 - f7 + f8) / rho;
+      const uy = (f2 - f4 + f5 + f6 - f7 - f8) / rho;
+      previousVelocityX[cell] = ux;
+      previousVelocityY[cell] = uy;
 
-  private streamAndBounceBack(): { readonly x: number; readonly y: number } {
-    this.next.fill(0);
+      const velocitySquared = ux * ux + uy * uy;
+      const common = 1 - 1.5 * velocitySquared;
+      const rhoNinth = rho / 9;
+      const rhoThirtySixth = rho / 36;
+      const uxPlusUy = ux + uy;
+      const minusUxPlusUy = -ux + uy;
+      const e0 = (4 * rhoNinth) * common;
+      const e1 = rhoNinth * (common + 3 * ux + 4.5 * ux * ux);
+      const e2 = rhoNinth * (common + 3 * uy + 4.5 * uy * uy);
+      const e3 = rhoNinth * (common - 3 * ux + 4.5 * ux * ux);
+      const e4 = rhoNinth * (common - 3 * uy + 4.5 * uy * uy);
+      const e5 = rhoThirtySixth *
+        (common + 3 * uxPlusUy + 4.5 * uxPlusUy * uxPlusUy);
+      const e6 = rhoThirtySixth *
+        (common + 3 * minusUxPlusUy + 4.5 * minusUxPlusUy * minusUxPlusUy);
+      const e7 = rhoThirtySixth *
+        (common - 3 * uxPlusUy + 4.5 * uxPlusUy * uxPlusUy);
+      const e8 = rhoThirtySixth *
+        (common - 3 * minusUxPlusUy + 4.5 * minusUxPlusUy * minusUxPlusUy);
+
+      const p0 = f0 - omegaEven * (f0 - e0);
+      let evenRelaxation =
+        omegaEven * (0.5 * (f1 + f3) - 0.5 * (e1 + e3));
+      let oddRelaxation =
+        omegaOdd * (0.5 * (f1 - f3) - 0.5 * (e1 - e3));
+      const p1 = f1 - evenRelaxation - oddRelaxation;
+      const p3 = f3 - evenRelaxation + oddRelaxation;
+
+      evenRelaxation =
+        omegaEven * (0.5 * (f2 + f4) - 0.5 * (e2 + e4));
+      oddRelaxation =
+        omegaOdd * (0.5 * (f2 - f4) - 0.5 * (e2 - e4));
+      const p2 = f2 - evenRelaxation - oddRelaxation;
+      const p4 = f4 - evenRelaxation + oddRelaxation;
+
+      evenRelaxation =
+        omegaEven * (0.5 * (f5 + f7) - 0.5 * (e5 + e7));
+      oddRelaxation =
+        omegaOdd * (0.5 * (f5 - f7) - 0.5 * (e5 - e7));
+      const p5 = f5 - evenRelaxation - oddRelaxation;
+      const p7 = f7 - evenRelaxation + oddRelaxation;
+
+      evenRelaxation =
+        omegaEven * (0.5 * (f6 + f8) - 0.5 * (e6 + e8));
+      oddRelaxation =
+        omegaOdd * (0.5 * (f6 - f8) - 0.5 * (e6 - e8));
+      const p6 = f6 - evenRelaxation - oddRelaxation;
+      const p8 = f8 - evenRelaxation + oddRelaxation;
+
+      if (retainsPostCollision[cell] === 1) {
+        postCollision[base] = p0;
+        postCollision[base + 1] = p1;
+        postCollision[base + 2] = p2;
+        postCollision[base + 3] = p3;
+        postCollision[base + 4] = p4;
+        postCollision[base + 5] = p5;
+        postCollision[base + 6] = p6;
+        postCollision[base + 7] = p7;
+        postCollision[base + 8] = p8;
+      }
+
+      next[base] = p0;
+      let target = streamTarget[base + 1]!;
+      if (target >= 0) next[target] = p1;
+      target = streamTarget[base + 2]!;
+      if (target >= 0) next[target] = p2;
+      target = streamTarget[base + 3]!;
+      if (target >= 0) next[target] = p3;
+      target = streamTarget[base + 4]!;
+      if (target >= 0) next[target] = p4;
+      target = streamTarget[base + 5]!;
+      if (target >= 0) next[target] = p5;
+      target = streamTarget[base + 6]!;
+      if (target >= 0) next[target] = p6;
+      target = streamTarget[base + 7]!;
+      if (target >= 0) next[target] = p7;
+      target = streamTarget[base + 8]!;
+      if (target >= 0) next[target] = p8;
+    }
+
+    const bounceAway = this.bounceAway;
+    const cutFraction = this.cutFraction;
     let forceX = 0;
     let forceY = 0;
-    for (let y = 0; y < this.height; y += 1) {
-      for (let x = 0; x < this.width; x += 1) {
-        const cell = this.cell(x, y);
-        if (this.solid[cell] === 1) {
-          continue;
-        }
-        const base = cell * 9;
-        this.next[base] = this.postCollision[base]!;
-        for (let direction = 1; direction < 9; direction += 1) {
-          const neighbourX = x + CX[direction]!;
-          let neighbourY = y + CY[direction]!;
-          if (
-            (neighbourY < 0 || neighbourY >= this.height) &&
-            this.boundaries.lateral === "periodic"
-          ) {
-            neighbourY = (neighbourY + this.height) % this.height;
-          }
-          if (
-            neighbourX < 0 ||
-            neighbourX >= this.width ||
-            neighbourY < 0 ||
-            neighbourY >= this.height
-          ) {
-            continue;
-          }
-          const outgoing = this.postCollision[base + direction]!;
-          const neighbour = this.cell(neighbourX, neighbourY);
-          if (this.solid[neighbour] === 0) {
-            this.next[neighbour * 9 + direction] = outgoing;
-            continue;
-          }
-          const fraction = this.cutFraction[base + direction]!;
-          const opposite = OPPOSITE[direction]!;
-          let reflected: number;
-          if (fraction < 0.5) {
-            const awayX = x - CX[direction]!;
-            const awayY = y - CY[direction]!;
-            const away = this.cell(awayX, awayY);
-            reflected =
-              2 * fraction * outgoing +
-              (1 - 2 * fraction) * this.postCollision[away * 9 + direction]!;
-          } else {
-            reflected =
-              outgoing / (2 * fraction) +
-              ((2 * fraction - 1) / (2 * fraction)) *
-                this.postCollision[base + opposite]!;
-          }
-          this.next[base + opposite] = reflected;
-          forceX += (outgoing + reflected) * CX[direction]!;
-          forceY += (outgoing + reflected) * CY[direction]!;
-        }
-      }
+    for (const link of this.bounceLinks) {
+      const base = link - (link % 9);
+      const direction = link - base;
+      const outgoing = postCollision[link]!;
+      const fraction = cutFraction[link]!;
+      const opposite = OPPOSITE[direction]!;
+      const reflected =
+        fraction < 0.5
+          ? 2 * fraction * outgoing +
+            (1 - 2 * fraction) * postCollision[bounceAway[link]!]!
+          : outgoing / (2 * fraction) +
+            ((2 * fraction - 1) / (2 * fraction)) *
+              postCollision[base + opposite]!;
+      next[base + opposite] = reflected;
+      forceX += (outgoing + reflected) * CX[direction]!;
+      forceY += (outgoing + reflected) * CY[direction]!;
     }
     return { x: forceX, y: forceY };
   }
@@ -685,6 +831,7 @@ class D2Q9TrtOpenCylinder {
       total += values.rho;
       fluidCells += 1;
     }
+    this.macroscopicFieldsCurrent = true;
     return {
       minimum,
       maximum,
