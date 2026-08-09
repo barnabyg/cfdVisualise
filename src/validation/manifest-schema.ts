@@ -26,11 +26,16 @@ const {
   schemaVersion,
   text,
 } = primitives;
-const { validateClassificationThresholds, validateNumericalConfiguration, validateRange } =
-  createValidationStructureValidators(
-    primitives,
-    (message) => new ValidationManifestSchemaError(message),
-  );
+const {
+  validateClassificationThresholds,
+  validateEvidenceScope,
+  validateNumericalConfiguration,
+  validateRange,
+  validateSamplingProtocol,
+} = createValidationStructureValidators(
+  primitives,
+  (message) => new ValidationManifestSchemaError(message),
+);
 
 export function parseValidationManifest(input: unknown): ValidationManifest {
   const manifest = record(input, "Validation manifest");
@@ -91,6 +96,9 @@ function validateSuite(value: unknown): void {
   for (const [metric, version] of Object.entries(versions)) {
     text(metric, "Metric id");
     text(version, `Metric version for ${metric}`);
+  }
+  if (suite.evidenceScope !== undefined) {
+    validateEvidenceScope(suite.evidenceScope, "Validation suite evidence scope");
   }
 }
 
@@ -196,13 +204,7 @@ function validateDefinition(value: unknown, reynoldsNumber: number, caseIndex: n
       `Case ${caseIndex} expected regime`,
     );
   }
-  const protocol = record(definition.protocol, `Case ${caseIndex} protocol`);
-  nonNegative(protocol.warmUpFlowThroughTime, `Case ${caseIndex} warm-up window`);
-  positive(protocol.sampleFlowThroughTime, `Case ${caseIndex} sample window`);
-  positive(protocol.sampleInterval, `Case ${caseIndex} sample interval`);
-  if (protocol.minimumStableCycles !== undefined) {
-    positive(protocol.minimumStableCycles, `Case ${caseIndex} minimum stable cycles`);
-  }
+  validateSamplingProtocol(definition.protocol, `Case ${caseIndex}`, reynoldsNumber);
   const health = record(definition.health, `Case ${caseIndex} health thresholds`);
   positive(health.targetDensity, `Case ${caseIndex} target density`);
   validateRange(health.densityRange, `Case ${caseIndex} density range`);

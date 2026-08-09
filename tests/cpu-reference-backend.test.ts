@@ -109,6 +109,96 @@ describe("CPU reference backend", () => {
     expect(once.flowThroughTime).toBe(twice.flowThroughTime);
     expect(once.fieldResidual).toBeCloseTo(twice.fieldResidual, 14);
   });
+
+  it("executes the declared inlet, lateral, and outlet alternatives", async () => {
+    const reference = STEADY_RE20_VALIDATION_SUITE.cases[0]!;
+    const alternatives = [
+      { inlet: "equilibrium-velocity" as const },
+      { lateral: "periodic" as const },
+      { outlet: "convective" as const },
+    ];
+
+    for (const alternative of alternatives) {
+      const definition: ValidationCaseDefinition = {
+        ...reference,
+        id: `boundary-alternative-${Object.values(alternative)[0]}`,
+        configuration: {
+          ...reference.configuration,
+          boundaries: { ...reference.configuration.boundaries, ...alternative },
+          domain: {
+            upstreamDiameters: 2,
+            downstreamDiameters: 3,
+            lateralDiameters: 2,
+          },
+        },
+        protocol: {
+          warmUpFlowThroughTime: 0,
+          sampleFlowThroughTime: 0.5,
+          sampleInterval: 0.5,
+        },
+        expectations: [],
+      };
+      const samples: ValidationSample[] = [];
+
+      for await (const sample of createCpuReferenceBackend(
+        createInlineCpuReferenceWorker,
+      ).runCase(definition)) {
+        samples.push(sample);
+      }
+
+      expect(samples).toHaveLength(2);
+      expect(
+        [
+          samples[1]!.density.minimum,
+          samples[1]!.density.maximum,
+          samples[1]!.density.mean,
+          samples[1]!.upstreamReflection,
+          samples[1]!.dragCoefficient,
+        ].every(Number.isFinite),
+      ).toBe(true);
+    }
+  });
+
+  it("applies a declared Reynolds change without restarting the flow field", async () => {
+    const reference = STEADY_RE20_VALIDATION_SUITE.cases[0]!;
+    const base: ValidationCaseDefinition = {
+      ...reference,
+      id: "compact-reynolds-change",
+      configuration: {
+        ...reference.configuration,
+        domain: {
+          upstreamDiameters: 2,
+          downstreamDiameters: 3,
+          lateralDiameters: 2,
+        },
+      },
+      protocol: {
+        warmUpFlowThroughTime: 1,
+        sampleFlowThroughTime: 0.5,
+        sampleInterval: 0.5,
+      },
+      expectations: [],
+    };
+
+    const unchanged = await lastSample(base);
+    const changed = await lastSample({
+      ...base,
+      protocol: {
+        ...base.protocol,
+        reynoldsChange: {
+          initialReynoldsNumber: 5,
+          atFlowThroughTime: 0.5,
+          rampFlowThroughTime: 0.5,
+          observationFlowThroughTime: 0.5,
+        },
+      },
+    });
+
+    expect(changed.step).toBe(unchanged.step);
+    expect(changed.flowThroughTime).toBe(unchanged.flowThroughTime);
+    expect(changed.dragCoefficient).not.toBeCloseTo(unchanged.dragCoefficient, 8);
+    expect(changed.density.mean).not.toBeCloseTo(unchanged.density.mean, 12);
+  });
 });
 
 async function lastSample(definition: ValidationCaseDefinition): Promise<ValidationSample> {

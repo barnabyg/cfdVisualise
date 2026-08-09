@@ -2,6 +2,7 @@ import { measureRecirculationLength } from "./metrics.js";
 import {
   VALIDATION_SCHEMA_VERSION,
   type BackendIdentity,
+  type BoundaryConfiguration,
   type DensitySample,
   type SolverBackend,
   type ValidationCaseDefinition,
@@ -27,8 +28,8 @@ export const CPU_REFERENCE_BACKEND_IDENTITY = Object.freeze({
   id: "cpu-reference",
   kind: "cpu-worker",
   solver: "D2Q9 TRT/BFL open-cylinder reference",
-  solverVersion: "1.1.0",
-  buildId: "ticket-03",
+  solverVersion: "1.2.0",
+  buildId: "ticket-06",
 } satisfies BackendIdentity);
 
 export interface CpuReferenceRunCaseCommand {
@@ -79,11 +80,20 @@ export async function* runCpuReferenceCase(
       definition.protocol.sampleInterval,
     "case duration",
   );
+  const reynoldsChange = definition.protocol.reynoldsChange;
   let step = 0;
   for (let sampleIndex = 1; sampleIndex <= sampleCount; sampleIndex += 1) {
     let forceX = 0;
     let forceY = 0;
     for (let localStep = 0; localStep < stepsPerSample; localStep += 1) {
+      if (reynoldsChange !== undefined) {
+        solver.setReynoldsNumber(
+          reynoldsNumberAtFlowThroughTime(
+            definition,
+            (step * solver.latticeSpeed) / solver.cylinderDiameter,
+          ),
+        );
+      }
       const force = solver.advance();
       forceX += force.x;
       forceY += force.y;
@@ -96,6 +106,28 @@ export async function* runCpuReferenceCase(
       forceY / stepsPerSample,
     );
   }
+}
+
+function reynoldsNumberAtFlowThroughTime(
+  definition: ValidationCaseDefinition,
+  flowThroughTime: number,
+): number {
+  const change = definition.protocol.reynoldsChange;
+  if (change === undefined) {
+    return definition.reynoldsNumber;
+  }
+  if (flowThroughTime <= change.atFlowThroughTime) {
+    return change.initialReynoldsNumber;
+  }
+  const rampProgress =
+    (flowThroughTime - change.atFlowThroughTime) / change.rampFlowThroughTime;
+  if (rampProgress >= 1) {
+    return definition.reynoldsNumber;
+  }
+  return (
+    change.initialReynoldsNumber +
+    rampProgress * (definition.reynoldsNumber - change.initialReynoldsNumber)
+  );
 }
 
 async function* runCaseInWorker(
@@ -156,9 +188,13 @@ function validateReferenceConfiguration(definition: ValidationCaseDefinition): v
     configuration.backendId !== CPU_REFERENCE_BACKEND_IDENTITY.id ||
     configuration.collision !== "D2Q9 TRT" ||
     configuration.precision !== "float64" ||
-    configuration.boundaries.inlet !== "regularized-velocity" ||
-    configuration.boundaries.lateral !== "free-slip" ||
-    configuration.boundaries.outlet !== "fixed-density-nee" ||
+    !["regularized-velocity", "equilibrium-velocity"].includes(
+      configuration.boundaries.inlet,
+    ) ||
+    !["free-slip", "periodic"].includes(configuration.boundaries.lateral) ||
+    !["fixed-density-nee", "convective", "extrapolated"].includes(
+      configuration.boundaries.outlet,
+    ) ||
     configuration.boundaries.cylinder !== "linear-bfl"
   ) {
     throw new Error(
@@ -179,6 +215,7 @@ class D2Q9TrtOpenCylinder {
   public readonly cylinderDiameter: number;
   public readonly latticeSpeed: number;
   private readonly initialTransversePerturbation: number;
+  private readonly boundaries: BoundaryConfiguration;
   private readonly upstreamReflectionMode: NonNullable<
     ValidationCaseDefinition["configuration"]["upstreamReflectionMode"]
   >;
@@ -189,8 +226,8 @@ class D2Q9TrtOpenCylinder {
   private readonly cylinderCenterY: number;
   private readonly cylinderRadius: number;
   private readonly cylinderRearX: number;
-  private readonly omegaEven: number;
-  private readonly omegaOdd: number;
+  private omegaEven = 0;
+  private omegaOdd = 0;
   private readonly solid: Uint8Array;
   private readonly cutFraction: Float64Array;
   private populations: Float64Array;
@@ -208,6 +245,7 @@ class D2Q9TrtOpenCylinder {
     this.latticeSpeed = definition.configuration.latticeSpeed ?? DEFAULT_LATTICE_SPEED;
     this.initialTransversePerturbation =
       definition.configuration.initialTransversePerturbation ?? 0;
+    this.boundaries = definition.configuration.boundaries;
     this.upstreamReflectionMode =
       definition.configuration.upstreamReflectionMode ?? "velocity-vector-about-mean";
     this.cylinderRadius = this.cylinderDiameter / 2;
@@ -231,11 +269,9 @@ class D2Q9TrtOpenCylinder {
     this.cylinderCenterY =
       (this.height - 1) / 2 + definition.configuration.cylinder.offsetY;
     this.cylinderRearX = this.cylinderCenterX + this.cylinderRadius;
-    const viscosity = (this.latticeSpeed * this.cylinderDiameter) / definition.reynoldsNumber;
-    const tauEven = 0.5 + 3 * viscosity;
-    const tauOdd = 0.5 + TRT_MAGIC_PARAMETER / (tauEven - 0.5);
-    this.omegaEven = 1 / tauEven;
-    this.omegaOdd = 1 / tauOdd;
+    this.setReynoldsNumber(
+      definition.protocol.reynoldsChange?.initialReynoldsNumber ?? definition.reynoldsNumber,
+    );
     this.solid = new Uint8Array(this.cellCount);
     this.cutFraction = new Float64Array(this.cellCount * 9);
     this.populations = new Float64Array(this.cellCount * 9);
@@ -257,14 +293,22 @@ class D2Q9TrtOpenCylinder {
     this.collide();
     const force = this.streamAndBounceBack();
     // Later applications own shared corner populations, matching the public precedence contract.
-    this.applyFreeSlipLaterals();
-    this.applyRegularizedInlet();
-    this.applyFixedDensityOutlet();
+    this.applyLateralBoundary();
+    this.applyInletBoundary();
+    this.applyOutletBoundary();
     const previous = this.populations;
     this.populations = this.next;
     this.next = previous;
     this.hasAdvanced = true;
     return force;
+  }
+
+  public setReynoldsNumber(reynoldsNumber: number): void {
+    const viscosity = (this.latticeSpeed * this.cylinderDiameter) / reynoldsNumber;
+    const tauEven = 0.5 + 3 * viscosity;
+    const tauOdd = 0.5 + TRT_MAGIC_PARAMETER / (tauEven - 0.5);
+    this.omegaEven = 1 / tauEven;
+    this.omegaOdd = 1 / tauOdd;
   }
 
   public diagnostic(
@@ -431,7 +475,13 @@ class D2Q9TrtOpenCylinder {
         this.next[base] = this.postCollision[base]!;
         for (let direction = 1; direction < 9; direction += 1) {
           const neighbourX = x + CX[direction]!;
-          const neighbourY = y + CY[direction]!;
+          let neighbourY = y + CY[direction]!;
+          if (
+            (neighbourY < 0 || neighbourY >= this.height) &&
+            this.boundaries.lateral === "periodic"
+          ) {
+            neighbourY = (neighbourY + this.height) % this.height;
+          }
           if (
             neighbourX < 0 ||
             neighbourX >= this.width ||
@@ -484,19 +534,52 @@ class D2Q9TrtOpenCylinder {
     }
   }
 
+  private applyLateralBoundary(): void {
+    if (this.boundaries.lateral === "free-slip") {
+      this.applyFreeSlipLaterals();
+    }
+  }
+
+  private applyInletBoundary(): void {
+    if (this.boundaries.inlet === "regularized-velocity") {
+      this.applyRegularizedInlet();
+      return;
+    }
+    this.applyEquilibriumInlet();
+  }
+
+  private applyOutletBoundary(): void {
+    if (this.boundaries.outlet === "fixed-density-nee") {
+      this.applyFixedDensityOutlet();
+      return;
+    }
+    if (this.boundaries.outlet === "convective") {
+      this.applyConvectiveOutlet();
+      return;
+    }
+    this.applyExtrapolatedOutlet();
+  }
+
+  private applyEquilibriumInlet(): void {
+    for (let y = 0; y < this.height; y += 1) {
+      const boundaryBase = this.cell(0, y) * 9;
+      const density = this.inletDensity(boundaryBase);
+      for (let direction = 0; direction < 9; direction += 1) {
+        this.next[boundaryBase + direction] = equilibrium(
+          direction,
+          density,
+          this.latticeSpeed,
+          0,
+        );
+      }
+    }
+  }
+
   private applyRegularizedInlet(): void {
     for (let y = 0; y < this.height; y += 1) {
       const boundaryBase = this.cell(0, y) * 9;
       const neighbourBase = this.cell(1, y) * 9;
-      const rho =
-        (this.next[boundaryBase]! +
-          this.next[boundaryBase + 2]! +
-          this.next[boundaryBase + 4]! +
-          2 *
-            (this.next[boundaryBase + 3]! +
-              this.next[boundaryBase + 6]! +
-              this.next[boundaryBase + 7]!)) /
-        (1 - this.latticeSpeed);
+      const rho = this.inletDensity(boundaryBase);
       const neighbour = macroscopic(this.next, neighbourBase);
       const stress = nonEquilibriumStress(
         this.next,
@@ -519,6 +602,19 @@ class D2Q9TrtOpenCylinder {
     }
   }
 
+  private inletDensity(boundaryBase: number): number {
+    return (
+      (this.next[boundaryBase]! +
+        this.next[boundaryBase + 2]! +
+        this.next[boundaryBase + 4]! +
+        2 *
+          (this.next[boundaryBase + 3]! +
+            this.next[boundaryBase + 6]! +
+            this.next[boundaryBase + 7]!)) /
+      (1 - this.latticeSpeed)
+    );
+  }
+
   private applyFixedDensityOutlet(): void {
     for (let y = 0; y < this.height; y += 1) {
       const boundaryBase = this.cell(this.width - 1, y) * 9;
@@ -530,6 +626,30 @@ class D2Q9TrtOpenCylinder {
           equilibrium(direction, neighbour.rho, neighbour.ux, neighbour.uy);
         this.next[boundaryBase + direction] =
           equilibrium(direction, TARGET_DENSITY, neighbour.ux, neighbour.uy) + nonEquilibrium;
+      }
+    }
+  }
+
+  private applyExtrapolatedOutlet(): void {
+    for (let y = 0; y < this.height; y += 1) {
+      const boundaryBase = this.cell(this.width - 1, y) * 9;
+      const neighbourBase = this.cell(this.width - 2, y) * 9;
+      for (let direction = 0; direction < 9; direction += 1) {
+        this.next[boundaryBase + direction] = this.next[neighbourBase + direction]!;
+      }
+    }
+  }
+
+  private applyConvectiveOutlet(): void {
+    const denominator = 1 + this.latticeSpeed;
+    for (let y = 0; y < this.height; y += 1) {
+      const boundaryBase = this.cell(this.width - 1, y) * 9;
+      const neighbourBase = this.cell(this.width - 2, y) * 9;
+      for (let direction = 0; direction < 9; direction += 1) {
+        this.next[boundaryBase + direction] =
+          (this.populations[boundaryBase + direction]! +
+            this.latticeSpeed * this.next[neighbourBase + direction]!) /
+          denominator;
       }
     }
   }

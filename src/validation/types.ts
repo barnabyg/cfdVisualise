@@ -71,6 +71,12 @@ export interface SamplingProtocol {
   readonly sampleFlowThroughTime: number;
   readonly sampleInterval: number;
   readonly minimumStableCycles?: number;
+  readonly reynoldsChange?: {
+    readonly initialReynoldsNumber: number;
+    readonly atFlowThroughTime: number;
+    readonly rampFlowThroughTime: number;
+    readonly observationFlowThroughTime: number;
+  };
 }
 
 export interface NumericalHealthThresholds {
@@ -111,6 +117,12 @@ export type ObservableMetric =
   | "nonPositiveDensityCount"
   | "fluxResidual"
   | "upstreamReflection"
+  | "startupUpstreamReflection"
+  | "reynoldsChangeUpstreamReflection"
+  | "startupMeanDensityDrift"
+  | "startupFluxResidual"
+  | "reynoldsChangeMeanDensityDrift"
+  | "reynoldsChangeFluxResidual"
   | "fieldResidual"
   | "symmetryError";
 
@@ -148,12 +160,27 @@ export interface ReconciliationDefinition {
   readonly requireSameRegime: boolean;
 }
 
+export interface ValidationEvidenceScope {
+  readonly selectedProductionDomain: DomainConfiguration;
+  readonly selectedProductionBoundaries: {
+    readonly inlet: "regularized-velocity";
+    readonly lateral: "free-slip";
+    readonly outlet: "fixed-density-nee";
+    readonly cylinder: "linear-bfl";
+  };
+  readonly benchmarkRoles: readonly (
+    | { readonly id: "open-cylinder-wake"; readonly role: "product-validation" }
+    | { readonly id: "confined-channel"; readonly role: "solver-regression" }
+  )[];
+}
+
 export interface ValidationSuite {
   readonly schemaVersion: ContractSchemaVersion;
   readonly id: string;
   readonly metricVersions: Readonly<Record<string, string>>;
   readonly cases: readonly ValidationCaseDefinition[];
   readonly reconciliations: readonly ReconciliationDefinition[];
+  readonly evidenceScope?: ValidationEvidenceScope;
 }
 
 export interface BackendIdentity {
@@ -268,6 +295,7 @@ export interface ValidationManifest {
     readonly id: string;
     readonly schemaVersion: ContractSchemaVersion;
     readonly metricVersions: Readonly<Record<string, string>>;
+    readonly evidenceScope?: ValidationEvidenceScope;
   };
   readonly backend: BackendIdentity;
   readonly status: "pass" | "fail";
