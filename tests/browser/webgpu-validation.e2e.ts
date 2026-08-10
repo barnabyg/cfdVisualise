@@ -240,6 +240,66 @@ test("WebGPU passive tracers are composited by the GPU renderer", async ({
   expect(changedPixelCount).toBeGreaterThan(0);
 });
 
+test("WebGPU tracer respawns do not draw domain-spanning segments", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "chrome", "WebGPU rendering uses software-backed Chrome.");
+  await page.goto("http://127.0.0.1:4174/");
+
+  const longestTracerRun = await page.evaluate(async () => {
+    const backendPath = "/src/validation/webgpu-backend.ts";
+    const referencePath = "/src/validation/webgpu-reference.ts";
+    const runtimePath = "/src/validation/webgpu-runtime.ts";
+    const backendModule = await import(/* @vite-ignore */ backendPath);
+    const referenceModule = await import(/* @vite-ignore */ referencePath);
+    const runtimeModule = await import(/* @vite-ignore */ runtimePath);
+    const backendResult = await backendModule.createWebGpuValidationBackend();
+    if (backendResult.status !== "ready") {
+      throw new Error(`${backendResult.reason}: ${backendResult.message}`);
+    }
+    const source = referenceModule.WEBGPU_BACKEND_VALIDATION_SUITE.cases[1];
+    const definition = {
+      ...source,
+      id: "webgpu-tracer-respawn-browser",
+      configuration: {
+        ...source.configuration,
+        domain: {
+          upstreamDiameters: 2,
+          downstreamDiameters: 3,
+          lateralDiameters: 2,
+        },
+      },
+    };
+    const execution = await runtimeModule.createWebGpuInteractiveCase(
+      backendResult.device,
+      definition,
+    );
+    const frame = await execution.renderFrame(10, true);
+    let longest = 0;
+    for (let y = 1; y + 1 < frame.height; y += 1) {
+      let run = 0;
+      for (let x = 1; x + 1 < frame.width; x += 1) {
+        const index = (y * frame.width + x) * 4;
+        const red = frame.pixels[index]!;
+        const green = frame.pixels[index + 1]!;
+        const blue = frame.pixels[index + 2]!;
+        const nearlyGrey = Math.max(red, green, blue) - Math.min(red, green, blue) < 12;
+        if (nearlyGrey && red > 80) {
+          run += 1;
+          longest = Math.max(longest, run);
+        } else {
+          run = 0;
+        }
+      }
+    }
+    await execution.execute({ type: "dispose" });
+    backendResult.device.destroy();
+    return { longest, width: frame.width };
+  });
+
+  expect(longestTracerRun.longest).toBeLessThan(longestTracerRun.width / 3);
+});
+
 test("supported WebGPU displays evidence for the exact selected engine identity", async ({
   page,
 }, testInfo) => {
