@@ -11,6 +11,7 @@
     "validate:webgpu-backend": "node scripts/generate-webgpu-backend-manifest.mjs",
     "validate:quality-tiers": "npm run validate:cpu-production && npm run validate:webgpu-backend",
     "test:browser": "node scripts/run-browser-tests.mjs",
+    "test:firefox-webgpu": "node scripts/run-firefox-webgpu-test.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",

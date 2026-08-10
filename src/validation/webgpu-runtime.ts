@@ -1051,16 +1051,17 @@ fn equilibrium(direction: u32, rho: f32, ux: f32, uy: f32) -> f32 {
 fn finite(value: f32) -> bool {
   return value == value && abs(value) <= 3.402823466e+38;
 }
-fn macroscopic(populations: ptr<storage, array<f32>, read>, base: u32) -> vec3<f32> {
-  let f0 = (*populations)[base];
-  let f1 = (*populations)[base + 1u];
-  let f2 = (*populations)[base + 2u];
-  let f3 = (*populations)[base + 3u];
-  let f4 = (*populations)[base + 4u];
-  let f5 = (*populations)[base + 5u];
-  let f6 = (*populations)[base + 6u];
-  let f7 = (*populations)[base + 7u];
-  let f8 = (*populations)[base + 8u];
+fn macroscopic_values(
+  f0: f32,
+  f1: f32,
+  f2: f32,
+  f3: f32,
+  f4: f32,
+  f5: f32,
+  f6: f32,
+  f7: f32,
+  f8: f32,
+) -> vec3<f32> {
   let rho = f0 + f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8;
   return vec3<f32>(rho, (f1 - f3 + f5 - f6 - f7 + f8) / rho, (f2 - f4 + f5 + f6 - f7 - f8) / rho);
 }
@@ -1267,6 +1268,34 @@ fn apply_boundaries() {
 @group(0) @binding(30) var<storage, read> tracer_solid: array<u32>;
 @group(0) @binding(31) var<storage, read_write> tracer_states: array<vec4<f32>>;
 
+fn tracer_macro(base: u32) -> vec3<f32> {
+  return macroscopic_values(
+    tracer_populations[base],
+    tracer_populations[base + 1u],
+    tracer_populations[base + 2u],
+    tracer_populations[base + 3u],
+    tracer_populations[base + 4u],
+    tracer_populations[base + 5u],
+    tracer_populations[base + 6u],
+    tracer_populations[base + 7u],
+    tracer_populations[base + 8u],
+  );
+}
+
+fn render_macro(base: u32) -> vec3<f32> {
+  return macroscopic_values(
+    render_populations[base],
+    render_populations[base + 1u],
+    render_populations[base + 2u],
+    render_populations[base + 3u],
+    render_populations[base + 4u],
+    render_populations[base + 5u],
+    render_populations[base + 6u],
+    render_populations[base + 7u],
+    render_populations[base + 8u],
+  );
+}
+
 @compute @workgroup_size(${WORKGROUP_SIZE})
 fn advance_tracers(@builtin(global_invocation_id) invocation: vec3<u32>) {
   let tracer = invocation.x;
@@ -1275,7 +1304,7 @@ fn advance_tracers(@builtin(global_invocation_id) invocation: vec3<u32>) {
   let px = u32(clamp(round(state.x), 0.0, f32(width() - 1u)));
   let py = u32(clamp(round(state.y), 0.0, f32(height() - 1u)));
   let cell = py * width() + px;
-  let velocity = macroscopic(&tracer_populations, cell * 9u).yz;
+  let velocity = tracer_macro(cell * 9u).yz;
   let lattice_steps = render_flow_increment() * cylinder_diameter() / lattice_speed();
   var next = state.xy + velocity * lattice_steps;
   let next_x = u32(clamp(round(next.x), 0.0, f32(width() - 1u)));
@@ -1317,10 +1346,10 @@ fn render_vorticity(@builtin(global_invocation_id) invocation: vec3<u32>) {
   let y = cell / width();
   var normalised = 0.0;
   if (x > 0u && y > 0u && x + 1u < width() && y + 1u < height()) {
-    let left = macroscopic(&render_populations, (cell - 1u) * 9u);
-    let right = macroscopic(&render_populations, (cell + 1u) * 9u);
-    let below = macroscopic(&render_populations, (cell - width()) * 9u);
-    let above = macroscopic(&render_populations, (cell + width()) * 9u);
+    let left = render_macro((cell - 1u) * 9u);
+    let right = render_macro((cell + 1u) * 9u);
+    let below = render_macro((cell - width()) * 9u);
+    let above = render_macro((cell + width()) * 9u);
     let vorticity = 0.5 * (right.z - left.z - above.y + below.y);
     normalised = clamp(vorticity * cylinder_diameter() / lattice_speed(), -2.0, 2.0);
   }
@@ -1348,6 +1377,20 @@ fn render_vorticity(@builtin(global_invocation_id) invocation: vec3<u32>) {
 @group(0) @binding(23) var<storage, read> diagnostic_force: array<f32>;
 @group(0) @binding(24) var<storage, read_write> diagnostic_output: array<f32>;
 
+fn diagnostic_macro(base: u32) -> vec3<f32> {
+  return macroscopic_values(
+    diagnostic_populations[base],
+    diagnostic_populations[base + 1u],
+    diagnostic_populations[base + 2u],
+    diagnostic_populations[base + 3u],
+    diagnostic_populations[base + 4u],
+    diagnostic_populations[base + 5u],
+    diagnostic_populations[base + 6u],
+    diagnostic_populations[base + 7u],
+    diagnostic_populations[base + 8u],
+  );
+}
+
 fn kahan(state: vec2<f32>, value: f32) -> vec2<f32> {
   let adjusted = value - state.y;
   let total = state.x + adjusted;
@@ -1368,7 +1411,7 @@ fn reduce_diagnostics() {
   var non_positive = 0u;
   for (var cell = 0u; cell < cell_count(); cell += 1u) {
     if (diagnostic_solid[cell] == 1u) { continue; }
-    let values = macroscopic(&diagnostic_populations, cell * 9u);
+    let values = diagnostic_macro(cell * 9u);
     if (!finite(values.x)) { non_finite += 1u; }
     if (!finite(values.y)) { non_finite += 1u; }
     if (!finite(values.z)) { non_finite += 1u; }
@@ -1391,7 +1434,7 @@ fn reduce_diagnostics() {
   let probe_count = height() - 2u;
   if (!streamwise_reflection_mode()) {
     for (var y = 1u; y < height() - 1u; y += 1u) {
-      let values = macroscopic(&diagnostic_populations, (y * width() + 1u) * 9u);
+      let values = diagnostic_macro((y * width() + 1u) * 9u);
       upstream_mean = kahan(upstream_mean, values.y);
     }
     upstream_mean.x /= f32(probe_count);
@@ -1399,7 +1442,7 @@ fn reduce_diagnostics() {
     upstream_mean.x = lattice_speed();
   }
   for (var y = 1u; y < height() - 1u; y += 1u) {
-    let values = macroscopic(&diagnostic_populations, (y * width() + 1u) * 9u);
+    let values = diagnostic_macro((y * width() + 1u) * 9u);
     let dx = values.y - upstream_mean.x;
     let disturbance = select(dx * dx + values.z * values.z, dx * dx, streamwise_reflection_mode());
     reflection = kahan(reflection, disturbance);
@@ -1417,8 +1460,8 @@ fn reduce_diagnostics() {
       let upper_cell = (centre_y + y_offset) * width() + x;
       let lower_cell = (centre_y - y_offset) * width() + x;
       if (diagnostic_solid[upper_cell] == 1u || diagnostic_solid[lower_cell] == 1u) { continue; }
-      let upper = macroscopic(&diagnostic_populations, upper_cell * 9u);
-      let lower = macroscopic(&diagnostic_populations, lower_cell * 9u);
+      let upper = diagnostic_macro(upper_cell * 9u);
+      let lower = diagnostic_macro(lower_cell * 9u);
       let du = upper.y - lower.y;
       let dv = upper.z + lower.z;
       symmetry_difference = kahan(symmetry_difference, du * du + dv * dv);
@@ -1434,9 +1477,9 @@ fn reduce_diagnostics() {
   let rear_cell_x = u32(ceil(rear_x));
   if (rear_cell_x + 1u < width()) {
     var left_x = rear_cell_x;
-    var left = macroscopic(&diagnostic_populations, (centreline_y * width() + left_x) * 9u).y;
+    var left = diagnostic_macro((centreline_y * width() + left_x) * 9u).y;
     for (var right_x = rear_cell_x + 1u; right_x < width(); right_x += 1u) {
-      let right = macroscopic(&diagnostic_populations, (centreline_y * width() + right_x) * 9u).y;
+      let right = diagnostic_macro((centreline_y * width() + right_x) * 9u).y;
       saw_reverse = saw_reverse || left < 0.0;
       if (saw_reverse && left <= 0.0 && right >= 0.0) {
         let fraction = select(-left / (right - left), 0.0, left == right);
