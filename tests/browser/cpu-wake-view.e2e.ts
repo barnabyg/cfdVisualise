@@ -67,7 +67,11 @@ test("production CPU Worker renders, resizes, rejects stale events, and disposes
     const bounds = canvas.getBoundingClientRect();
     return { width: bounds.width, height: bounds.height, bottom: bounds.bottom };
   });
-  expect(desktopBounds.width / desktopBounds.height).toBeCloseTo(2.5, 1);
+  const validatedGridAspectRatio = (21 * 18 + 1) / (17 * 18 + 1);
+  expect(desktopBounds.width / desktopBounds.height).toBeCloseTo(
+    validatedGridAspectRatio,
+    2,
+  );
   expect(desktopBounds.bottom).toBeLessThanOrEqual(900);
 
   const before = await wake.evaluate((canvas) => (canvas as HTMLCanvasElement).width);
