@@ -59,6 +59,9 @@ test("production CPU Worker renders, resizes, rejects stale events, and disposes
   ).toBeVisible();
   await expect(page.getByRole("checkbox", { name: /passive tracers/i })).not.toBeChecked();
   await expect(page.getByText("paused", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Play" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Pause" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: /step 0\.05 D\/U/i })).toBeEnabled();
 
   const desktopBounds = await wake.evaluate((canvas) => {
     const bounds = canvas.getBoundingClientRect();
@@ -74,6 +77,9 @@ test("production CPU Worker renders, resizes, rejects stale events, and disposes
   await page.getByRole("button", { name: /start guided experiment/i }).focus();
   await page.keyboard.press("Enter");
   await expect(page.getByText("playing", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Play" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Pause" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: /step 0\.05 D\/U/i })).toBeDisabled();
 
   const beforeStale = await page.getByText(/^[0-9]+\.[0-9]$/).first().textContent();
   await page.evaluate(() => {

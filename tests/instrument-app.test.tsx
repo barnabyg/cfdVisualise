@@ -9,6 +9,72 @@ import type { WakeWorkerPort } from "../src/ui/use-wake-engine.js";
 
 describe("instrument app", () => {
   afterEach(cleanup);
+  it("enables playback actions only when they are meaningful", async () => {
+    const worker = new FakeWorker();
+    Object.defineProperty(HTMLCanvasElement.prototype, "transferControlToOffscreen", {
+      configurable: true,
+      value: () => ({}) as OffscreenCanvas,
+    });
+    vi.stubGlobal("ResizeObserver", class { public observe(): void {} public disconnect(): void {} });
+
+    render(<InstrumentApp workerFactory={() => worker} reducedMotion />);
+    await act(async () => undefined);
+    const play = screen.getByRole("button", { name: "Play" }) as HTMLButtonElement;
+    const pause = screen.getByRole("button", { name: "Pause" }) as HTMLButtonElement;
+    const step = screen.getByRole("button", { name: /step 0\.05 D\/U/i }) as HTMLButtonElement;
+    const restart = screen.getByRole("button", { name: "Restart experiment" }) as HTMLButtonElement;
+
+    expect([play.disabled, pause.disabled, step.disabled, restart.disabled]).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ]);
+    worker.emit({
+      protocolVersion: ENGINE_PROTOCOL_VERSION,
+      sessionId: worker.commands[0]!.sessionId,
+      sequence: 0,
+      type: "ready",
+      tier: {
+        id: "cpu-balanced-d18",
+        backendId: "cpu-reference",
+        buildId: "ticket-06",
+        label: "CPU balanced",
+        cellsPerDiameter: 18,
+        defaultPlaybackRate: 1.3,
+      },
+    });
+    expect([play.disabled, pause.disabled, step.disabled, restart.disabled]).toEqual([
+      false,
+      true,
+      false,
+      false,
+    ]);
+
+    worker.emit(summaryEvent(worker, 1, { playback: "playing" }));
+    expect([play.disabled, pause.disabled, step.disabled, restart.disabled]).toEqual([
+      true,
+      false,
+      true,
+      false,
+    ]);
+
+    worker.emit({
+      protocolVersion: ENGINE_PROTOCOL_VERSION,
+      sessionId: worker.commands[0]!.sessionId,
+      sequence: 2,
+      type: "unavailable",
+      reason: "The result is unavailable.",
+      restartChoices: ["same-tier"],
+    });
+    expect([play.disabled, pause.disabled, step.disabled, restart.disabled]).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ]);
+  });
+
   it("runs the guide from a measured steady baseline to measured shedding", async () => {
     const worker = new FakeWorker();
     Object.defineProperty(HTMLCanvasElement.prototype, "transferControlToOffscreen", {

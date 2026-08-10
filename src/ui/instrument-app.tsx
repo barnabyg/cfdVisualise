@@ -248,12 +248,38 @@ export function InstrumentApp({ workerFactory, reducedMotion }: InstrumentAppPro
 }
 
 function PlaybackControls({ engine }: { readonly engine: ReturnType<typeof useWakeEngine> }) {
+  const controlsUnavailable = engine.tier === undefined || engine.unavailableReason !== undefined;
+  const playing = engine.summary.playback === "playing";
   return (
     <div class={styles.playback} aria-label="Playback controls">
-      <button type="button" onClick={engine.play}>Play</button>
-      <button type="button" onClick={engine.pause}>Pause</button>
-      <button type="button" onClick={engine.step}>Step 0.05 D/U</button>
-      <button type="button" onClick={engine.restart}>Restart experiment</button>
+      <button
+        type="button"
+        disabled={controlsUnavailable || playing}
+        onClick={engine.play}
+      >
+        Play
+      </button>
+      <button
+        type="button"
+        disabled={controlsUnavailable || !playing}
+        onClick={engine.pause}
+      >
+        Pause
+      </button>
+      <button
+        type="button"
+        disabled={controlsUnavailable || playing}
+        onClick={engine.step}
+      >
+        Step 0.05 D/U
+      </button>
+      <button
+        type="button"
+        disabled={controlsUnavailable}
+        onClick={engine.restart}
+      >
+        Restart experiment
+      </button>
       <label>
         Playback rate
         <select
