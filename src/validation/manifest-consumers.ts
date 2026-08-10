@@ -22,6 +22,13 @@ export type MethodAndValidationModel =
       readonly solver: string;
       readonly solverVersion: string;
       readonly buildId: string;
+      readonly qualityConfiguration?: {
+        readonly cellsPerDiameter: number;
+        readonly defaultPlaybackRate: number;
+        readonly benchmarkVersion: string;
+        readonly minimumFlowThroughTimePerSecond: number;
+        readonly maximumGuideDurationSeconds: number;
+      };
       readonly modelScope: "A qualitative two-dimensional open-flow model within the validated Reynolds-number envelope.";
       readonly boundaries: BoundaryConfiguration;
       readonly referenceCases: readonly {
@@ -114,6 +121,19 @@ export function createMethodAndValidationModel(
     solver: manifest.backend.solver,
     solverVersion: manifest.backend.solverVersion,
     buildId: manifest.backend.buildId,
+    ...(manifest.suite.qualityTier === undefined
+      ? {}
+      : {
+          qualityConfiguration: {
+            cellsPerDiameter: manifest.suite.qualityTier.cellsPerDiameter,
+            defaultPlaybackRate: manifest.suite.qualityTier.defaultPlaybackRate,
+            benchmarkVersion: manifest.suite.qualityTier.performance.benchmarkVersion,
+            minimumFlowThroughTimePerSecond:
+              manifest.suite.qualityTier.performance.minimumFlowThroughTimePerSecond,
+            maximumGuideDurationSeconds:
+              manifest.suite.qualityTier.performance.maximumGuideDurationSeconds,
+          },
+        }),
     modelScope:
       "A qualitative two-dimensional open-flow model within the validated Reynolds-number envelope.",
     boundaries: activeCases[0]!.configuration.boundaries,
@@ -141,12 +161,16 @@ function releaseEvidenceProblem(
     if (result === undefined) {
       return `missing the canonical open-flow Re=${reynoldsNumber} reference case`;
     }
-    const requiredMetrics =
-      result.regime === "steady"
-        ? ["meanDragCoefficient", "recirculationLength"]
-        : result.regime === "periodically-shedding"
-          ? ["meanDragCoefficient", "liftRms", "strouhalNumber"]
-          : ["meanDragCoefficient"];
+    const requiredMetrics = [
+      "meanDragCoefficient",
+      ...(result.regime === "steady" &&
+      result.metrics.recirculationLength?.applicability === "applicable"
+        ? ["recirculationLength"]
+        : []),
+      ...(result.regime === "periodically-shedding"
+        ? ["liftRms", "strouhalNumber"]
+        : []),
+    ];
     for (const metric of requiredMetrics) {
       if (result.metrics[metric]?.status !== "pass") {
         return `Re=${reynoldsNumber} lacks passing ${metric} evidence`;
@@ -316,7 +340,10 @@ function reconciliationMetricProblem(evidence: ParsedReconciliation): string | u
     }
     if (comparison.baselineRegime === "steady" && comparison.comparisonRegime === "steady") {
       const recirculation = comparison.metrics.recirculationLength;
-      if (recirculation?.status !== "pass" || recirculation.maximumRelativeChange > 0.02) {
+      if (
+        recirculation !== undefined &&
+        (recirculation.status !== "pass" || recirculation.maximumRelativeChange > 0.02)
+      ) {
         return "lacks a passing recirculation-length comparison at the two-percent gate";
       }
     }
@@ -335,6 +362,21 @@ function reconciliationMetricProblem(evidence: ParsedReconciliation): string | u
 
 function findCaseById(cases: readonly ParsedCase[], caseId: string): ParsedCase | undefined {
   return cases.find((result) => result.caseId === caseId);
+}
+
+export function completeValidationEvidenceProblem(
+  input: unknown,
+  active: ActiveValidationIdentity,
+): string | undefined {
+  const model = createMethodAndValidationModel(input, active);
+  if (model.status === "unavailable") return model.reason;
+  const manifest = parseValidationManifest(input);
+  const activeCases = manifest.cases.filter(
+    (result) =>
+      result.configuration.backendId === active.backendId &&
+      result.configuration.qualityTier === active.qualityTier,
+  );
+  return releaseEvidenceProblem(activeCases, manifest.cases, manifest.reconciliations);
 }
 
 function findComparisonCases(

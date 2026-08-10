@@ -2,8 +2,13 @@ import { expect, test } from "@playwright/test";
 
 test("the real CPU guide completes across the browser matrix", async ({ page }, testInfo) => {
   test.setTimeout(150_000);
+  await page.addInitScript(() => {
+    localStorage.setItem("cfd-visualise-quality-tier", "cpu-balanced-d18");
+  });
   await page.goto("/");
-  await expect(page.getByText(/CPU balanced/)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/CPU balanced · cpu-reference/)).toBeVisible({
+    timeout: 20_000,
+  });
 
   const started = performance.now();
   await page.getByRole("button", { name: /start guided experiment/i }).click();

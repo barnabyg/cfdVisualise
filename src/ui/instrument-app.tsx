@@ -6,6 +6,7 @@ import {
 } from "../engine/physical-scenario.js";
 import type { EngineBaseline, EngineSummary } from "../engine/protocol.js";
 import styles from "./instrument-app.module.css";
+import { TierEvidencePanel } from "./tier-evidence-panel.js";
 import { useWakeEngine, type WakeWorkerPort } from "./use-wake-engine.js";
 
 type GuideStage =
@@ -187,8 +188,26 @@ export function InstrumentApp({ workerFactory, reducedMotion }: InstrumentAppPro
           <p class={styles.tier}>
             {engine.tier?.label ?? "Starting CPU tier"} · {engine.tier?.backendId ?? "cpu-reference"} · validated build {engine.tier?.buildId ?? "ticket-06"}
           </p>
+          <label class={styles.tier}>
+            Quality tier (changing tier restarts this experiment)
+            <select
+              aria-label="Quality tier"
+              value={engine.tier?.id ?? ""}
+              disabled={engine.tier === undefined}
+              onChange={(event) => engine.changeTier(event.currentTarget.value)}
+            >
+              {engine.tier === undefined && <option value="">Selecting validated tier…</option>}
+              {engine.availableTiers.map((identity) => (
+                <option key={identity.id} value={identity.id}>{identity.label}</option>
+              ))}
+            </select>
+          </label>
         </aside>
       </div>
+
+      {engine.tier !== undefined && (
+        <TierEvidencePanel active={engine.tier} />
+      )}
 
       <GuideProgress
         stage={guideStage}
@@ -206,7 +225,21 @@ export function InstrumentApp({ workerFactory, reducedMotion }: InstrumentAppPro
           <p>{engine.unavailableReason}</p>
           <p>The last valid frame is frozen. No physical conclusion should be drawn from this result.</p>
           <div class={styles.actions}>
-            <button type="button" onClick={engine.restart}>Restart on CPU balanced</button>
+            {engine.restartChoices?.includes("same-tier") && (
+              <button type="button" onClick={engine.restartTier}>
+                Restart {engine.tier?.label ?? "current tier"}
+              </button>
+            )}
+            {engine.restartChoices?.includes("lower-tier") &&
+              engine.tier?.id !== "cpu-balanced-d18" && (
+                <button
+                  type="button"
+                  class={styles.secondary}
+                  onClick={() => engine.changeTier("cpu-balanced-d18")}
+                >
+                  Restart on CPU balanced
+                </button>
+              )}
           </div>
         </section>
       )}

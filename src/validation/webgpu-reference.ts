@@ -1,4 +1,12 @@
-import { CPU_PRODUCTION_CANONICAL_VALIDATION_SUITE } from "./cpu-production-reference.js";
+import {
+  CPU_PRODUCTION_QUALITY_TIER_ID,
+} from "./cpu-production-config.js";
+import {
+  CPU_PRODUCTION_CANONICAL_VALIDATION_SUITE,
+  CPU_PRODUCTION_VALIDATION_SUITE,
+} from "./cpu-production-reference.js";
+import { DOMAIN_AND_BOUNDARY_VALIDATION_SUITE } from "./domain-boundary-reference.js";
+import { GRID_AND_PLACEMENT_CONVERGENCE_VALIDATION_SUITE } from "./grid-convergence-reference.js";
 import type { BackendParityDefinition } from "./backend-parity.js";
 import {
   VALIDATION_SCHEMA_VERSION,
@@ -7,7 +15,41 @@ import {
 } from "./types.js";
 import { WEBGPU_BACKEND_IDENTITY } from "./webgpu-backend.js";
 
-export const WEBGPU_BACKEND_QUALITY_TIER_ID = "webgpu-reference-d18";
+export const WEBGPU_BACKEND_QUALITY_TIER_ID = "webgpu-balanced-d18";
+export const WEBGPU_PRODUCTION_DEFAULT_PLAYBACK_RATE = 2 as const;
+
+export const WEBGPU_PRODUCTION_VALIDATION_SUITE = Object.freeze({
+  ...CPU_PRODUCTION_VALIDATION_SUITE,
+  id: "webgpu-production-d18-open-cylinder-v1",
+  qualityTier: Object.freeze({
+    id: WEBGPU_BACKEND_QUALITY_TIER_ID,
+    cellsPerDiameter: 18,
+    defaultPlaybackRate: WEBGPU_PRODUCTION_DEFAULT_PLAYBACK_RATE,
+    performance: Object.freeze({
+      benchmarkVersion: "local-fixed-step-throughput-v1",
+      minimumFlowThroughTimePerSecond: WEBGPU_PRODUCTION_DEFAULT_PLAYBACK_RATE,
+      maximumGuideDurationSeconds: 90,
+    }),
+  }),
+  cases: Object.freeze(
+    CPU_PRODUCTION_VALIDATION_SUITE.cases.map((definition) => webGpuCase(definition)),
+  ),
+} satisfies ValidationSuite);
+
+export const WEBGPU_PRODUCTION_COMPONENT_SUITES = Object.freeze({
+  canonical: webGpuSuite(
+    CPU_PRODUCTION_CANONICAL_VALIDATION_SUITE,
+    "webgpu-production-d18-canonical-envelope-v1",
+  ),
+  "grid-placement": webGpuSuite(
+    GRID_AND_PLACEMENT_CONVERGENCE_VALIDATION_SUITE,
+    "webgpu-production-d18-grid-placement-v1",
+  ),
+  "domain-boundary": webGpuSuite(
+    DOMAIN_AND_BOUNDARY_VALIDATION_SUITE,
+    "webgpu-production-d18-domain-boundary-v1",
+  ),
+});
 
 export const WEBGPU_BACKEND_VALIDATION_SUITE = Object.freeze({
   schemaVersion: VALIDATION_SCHEMA_VERSION,
@@ -49,13 +91,31 @@ function matchedCase(reynoldsNumber: 20 | 100): ValidationCaseDefinition {
   if (cpuCase === undefined) {
     throw new Error(`CPU production evidence lacks the matched Re=${reynoldsNumber} case.`);
   }
+  return webGpuCase(cpuCase);
+}
+
+function webGpuCase(
+  cpuCase: ValidationCaseDefinition,
+): ValidationCaseDefinition {
   return Object.freeze({
     ...cpuCase,
     configuration: Object.freeze({
       ...cpuCase.configuration,
       backendId: WEBGPU_BACKEND_IDENTITY.id,
-      qualityTier: WEBGPU_BACKEND_QUALITY_TIER_ID,
+      qualityTier:
+        cpuCase.configuration.qualityTier === CPU_PRODUCTION_QUALITY_TIER_ID
+          ? WEBGPU_BACKEND_QUALITY_TIER_ID
+          : `webgpu-${cpuCase.configuration.qualityTier}`,
       precision: "float32",
     }),
+  });
+}
+
+function webGpuSuite(suite: ValidationSuite, id: string): ValidationSuite {
+  return Object.freeze({
+    ...suite,
+    id,
+    qualityTier: WEBGPU_PRODUCTION_VALIDATION_SUITE.qualityTier,
+    cases: Object.freeze(suite.cases.map((definition) => webGpuCase(definition))),
   });
 }

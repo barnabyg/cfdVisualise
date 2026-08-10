@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "validate:cpu-production": "vite-node scripts/generate-cpu-production-manifest.ts",
     "validate:webgpu-backend": "node scripts/generate-webgpu-backend-manifest.mjs",
+    "validate:quality-tiers": "npm run validate:cpu-production && npm run validate:webgpu-backend",
     "test:browser": "node scripts/run-browser-tests.mjs",
     "test": "vitest run",
     "test:watch": "vitest",

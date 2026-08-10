@@ -24,6 +24,7 @@ import {
 
 const DIAGNOSTIC_VALUE_COUNT = 14;
 const WORKGROUP_SIZE = 64;
+const TRACER_COUNT = 180;
 const WEBGPU_PARAMETER_INDEX = Object.freeze({
   width: 0,
   height: 1,
@@ -40,6 +41,11 @@ const WEBGPU_PARAMETER_INDEX = Object.freeze({
   hasAdvanced: 12,
   upstreamReflectionMode: 13,
   stepsSinceSample: 14,
+  inletMode: 15,
+  lateralMode: 16,
+  outletMode: 17,
+  renderFlowIncrement: 18,
+  tracersEnabled: 19,
 });
 const WEBGPU_PARAMETER_COUNT = Object.keys(WEBGPU_PARAMETER_INDEX).length;
 const WGSL_CX = D2Q9_OPEN_CYLINDER_CONTRACT.directions
@@ -75,6 +81,16 @@ export class WebGpuExecutionError extends Error {
 export interface WebGpuCaseRuntime {
   runCase(definition: ValidationCaseDefinition): AsyncIterable<ValidationSample>;
   createCase(definition: ValidationCaseDefinition): Promise<FixedStepCaseExecution>;
+}
+
+export interface WebGpuInteractiveCaseExecution extends FixedStepCaseExecution {
+  renderFrame(flowThroughIncrement: number, tracersEnabled: boolean): Promise<{
+    readonly width: number;
+    readonly height: number;
+    readonly pixels: Uint8ClampedArray;
+  }>;
+  perturbWake(amplitude: number): Promise<void>;
+  resetTracers(): void;
 }
 
 export function createWebGpuCaseRuntime(
@@ -128,6 +144,63 @@ export async function createWebGpuFixedStepCase(
       },
     };
   });
+}
+
+export async function createWebGpuInteractiveCase(
+  device: WebGpuDeviceHandle,
+  definition: ValidationCaseDefinition,
+): Promise<WebGpuInteractiveCaseExecution> {
+  return classifyNativeWebGpuFailure(
+    device,
+    `WebGPU interactive case ${definition.id} initialisation`,
+    async () => {
+      validateWebGpuConfiguration(definition);
+      const execution = new WebGpuCaseExecution(device, definition);
+      await execution.validateShader();
+      return {
+        cylinderDiameter: execution.cylinderDiameter,
+        latticeSpeed: execution.latticeSpeed,
+        execute(command) {
+          return classifyNativeWebGpuFailure(
+            device,
+            `WebGPU interactive case ${definition.id} ${command.type}`,
+            async () => {
+              if (command.type === "advance-fixed-steps") {
+                await execution.advance(command.stepCount, command.reynoldsNumber);
+                return undefined;
+              }
+              if (command.type === "sample-diagnostics") {
+                return execution.diagnostic(
+                  command.step,
+                  command.flowThroughTime,
+                  command.stepsSinceSample,
+                );
+              }
+              execution.dispose();
+              return undefined;
+            },
+          );
+        },
+        perturbWake(amplitude) {
+          return classifyNativeWebGpuFailure(
+            device,
+            `WebGPU interactive case ${definition.id} wake perturbation`,
+            () => execution.perturbWake(amplitude),
+          );
+        },
+        renderFrame(flowThroughIncrement, tracersEnabled) {
+          return classifyNativeWebGpuFailure(
+            device,
+            `WebGPU interactive case ${definition.id} render`,
+            () => execution.renderFrame(flowThroughIncrement, tracersEnabled),
+          );
+        },
+        resetTracers() {
+          execution.resetTracers();
+        },
+      };
+    },
+  );
 }
 
 async function classifyNativeWebGpuFailure<T>(
@@ -329,6 +402,128 @@ class WebGpuCaseExecution {
     };
   }
 
+  public async perturbWake(amplitude: number): Promise<void> {
+    if (!Number.isFinite(amplitude) || amplitude <= 0) {
+      throw new RangeError("Wake perturbation amplitude must be positive and finite.");
+    }
+    const populations = await this.readPopulations();
+    const centreX = this.geometry.cylinderRearX + 0.75 * this.geometry.cylinderDiameter;
+    const centreY = this.geometry.cylinderCenterY + 0.25 * this.geometry.cylinderDiameter;
+    const radius = 0.5 * this.geometry.cylinderDiameter;
+    const radiusSquared = radius * radius;
+    for (let y = Math.floor(centreY - radius); y <= Math.ceil(centreY + radius); y += 1) {
+      for (let x = Math.floor(centreX - radius); x <= Math.ceil(centreX + radius); x += 1) {
+        const cell = y * this.geometry.width + x;
+        if (this.geometry.solid[cell] === 1) continue;
+        const distanceSquared = (x - centreX) ** 2 + (y - centreY) ** 2;
+        if (distanceSquared > radiusSquared) continue;
+        const state = macroscopic(populations, cell);
+        const transverseVelocity =
+          state.velocityY + amplitude * Math.exp(-4 * distanceSquared / radiusSquared);
+        for (let direction = 0; direction < 9; direction += 1) {
+          populations[cell * 9 + direction] = equilibriumPopulation(
+            direction,
+            state.density,
+            state.velocityX,
+            transverseVelocity,
+          );
+        }
+      }
+    }
+    this.device.queue.writeBuffer(
+      this.populationsAIsCurrent ? this.resources.populationsA : this.resources.populationsB,
+      0,
+      populations,
+    );
+  }
+
+  public async renderFrame(
+    flowThroughIncrement: number,
+    tracersEnabled: boolean,
+  ): Promise<{
+    readonly width: number;
+    readonly height: number;
+    readonly pixels: Uint8ClampedArray;
+  }> {
+    if (!Number.isFinite(flowThroughIncrement) || flowThroughIncrement < 0) {
+      throw new RangeError("WebGPU render flow-through increment must be finite and non-negative.");
+    }
+    this.parameterValues[WEBGPU_PARAMETER_INDEX.renderFlowIncrement] = flowThroughIncrement;
+    this.parameterValues[WEBGPU_PARAMETER_INDEX.tracersEnabled] = tracersEnabled ? 1 : 0;
+    this.device.queue.writeBuffer(this.resources.parameters, 0, this.parameterValues);
+    const byteLength = this.geometry.cellCount * Uint32Array.BYTES_PER_ELEMENT;
+    const encoder = this.device.createCommandEncoder({
+      label: `WebGPU ${this.definition.id} raster frame`,
+    });
+    const pass = encoder.beginComputePass();
+    if (tracersEnabled && flowThroughIncrement > 0) {
+      pass.setPipeline(this.pipelines.tracers);
+      pass.setBindGroup(
+        0,
+        this.populationsAIsCurrent
+          ? this.bindGroups.tracersA
+          : this.bindGroups.tracersB,
+      );
+      pass.dispatchWorkgroups(Math.ceil(TRACER_COUNT / WORKGROUP_SIZE));
+    }
+    pass.setPipeline(this.pipelines.render);
+    pass.setBindGroup(
+      0,
+      this.populationsAIsCurrent ? this.bindGroups.renderA : this.bindGroups.renderB,
+    );
+    pass.dispatchWorkgroups(Math.ceil(this.geometry.cellCount / WORKGROUP_SIZE));
+    pass.end();
+    encoder.copyBufferToBuffer(
+      this.resources.renderPixels,
+      0,
+      this.resources.renderReadback,
+      0,
+      byteLength,
+    );
+    this.device.pushErrorScope("validation");
+    this.device.queue.submit([encoder.finish()]);
+    await this.submittedWork(`WebGPU case ${this.definition.id} raster render failed`);
+    await this.resources.renderReadback.mapAsync(WEBGPU_MAP_MODE_READ, 0, byteLength);
+    const pixels = new Uint8ClampedArray(
+      this.resources.renderReadback.getMappedRange(0, byteLength),
+    ).slice();
+    this.resources.renderReadback.unmap();
+    return { width: this.geometry.width, height: this.geometry.height, pixels };
+  }
+
+  public resetTracers(): void {
+    this.device.queue.writeBuffer(
+      this.resources.tracerStates,
+      0,
+      createInitialTracerStates(this.geometry),
+    );
+  }
+
+  private async readPopulations(): Promise<Float32Array> {
+    const byteLength = this.geometry.cellCount * 9 * Float32Array.BYTES_PER_ELEMENT;
+    const encoder = this.device.createCommandEncoder({
+      label: `WebGPU ${this.definition.id} field readback`,
+    });
+    encoder.copyBufferToBuffer(
+      this.populationsAIsCurrent
+        ? this.resources.populationsA
+        : this.resources.populationsB,
+      0,
+      this.resources.fieldReadback,
+      0,
+      byteLength,
+    );
+    this.device.pushErrorScope("validation");
+    this.device.queue.submit([encoder.finish()]);
+    await this.submittedWork(`WebGPU case ${this.definition.id} field readback failed`);
+    await this.resources.fieldReadback.mapAsync(WEBGPU_MAP_MODE_READ, 0, byteLength);
+    const populations = new Float32Array(
+      this.resources.fieldReadback.getMappedRange(0, byteLength),
+    ).slice();
+    this.resources.fieldReadback.unmap();
+    return populations;
+  }
+
   public dispose(): void {
     for (const buffer of Object.values(this.resources)) buffer.destroy();
   }
@@ -369,6 +564,16 @@ class WebGpuCaseExecution {
         ? 1
         : 0;
     this.parameterValues[WEBGPU_PARAMETER_INDEX.stepsSinceSample] = stepsSinceSample;
+    this.parameterValues[WEBGPU_PARAMETER_INDEX.inletMode] =
+      this.definition.configuration.boundaries.inlet === "equilibrium-velocity" ? 1 : 0;
+    this.parameterValues[WEBGPU_PARAMETER_INDEX.lateralMode] =
+      this.definition.configuration.boundaries.lateral === "periodic" ? 1 : 0;
+    this.parameterValues[WEBGPU_PARAMETER_INDEX.outletMode] =
+      this.definition.configuration.boundaries.outlet === "convective"
+        ? 1
+        : this.definition.configuration.boundaries.outlet === "extrapolated"
+          ? 2
+          : 0;
     this.device.queue.writeBuffer(this.resources.parameters, 0, this.parameterValues);
   }
 
@@ -411,6 +616,10 @@ interface WebGpuResources {
   readonly forceAccumulation: WebGpuBufferHandle;
   readonly diagnostic: WebGpuBufferHandle;
   readonly readback: WebGpuBufferHandle;
+  readonly fieldReadback: WebGpuBufferHandle;
+  readonly renderPixels: WebGpuBufferHandle;
+  readonly renderReadback: WebGpuBufferHandle;
+  readonly tracerStates: WebGpuBufferHandle;
 }
 
 interface WebGpuPipelines {
@@ -423,6 +632,8 @@ interface WebGpuPipelines {
   readonly forceReduction: WebGpuComputePipelineHandle;
   readonly boundaries: WebGpuComputePipelineHandle;
   readonly diagnostic: WebGpuComputePipelineHandle;
+  readonly render: WebGpuComputePipelineHandle;
+  readonly tracers: WebGpuComputePipelineHandle;
 }
 
 interface StepBindGroups {
@@ -438,6 +649,10 @@ interface WebGpuBindGroups {
   readonly forceReduction: WebGpuBindGroupHandle;
   readonly diagnosticA: WebGpuBindGroupHandle;
   readonly diagnosticB: WebGpuBindGroupHandle;
+  readonly renderA: WebGpuBindGroupHandle;
+  readonly renderB: WebGpuBindGroupHandle;
+  readonly tracersA: WebGpuBindGroupHandle;
+  readonly tracersB: WebGpuBindGroupHandle;
 }
 
 function createResources(
@@ -458,8 +673,18 @@ function createResources(
       "parameters",
       new Float32Array(WEBGPU_PARAMETER_COUNT),
     ),
-    populationsA: createBuffer(device, "populations A", populations),
-    populationsB: createBuffer(device, "populations B", new Float32Array(populationCount)),
+    populationsA: createBuffer(
+      device,
+      "populations A",
+      populations,
+      WEBGPU_BUFFER_USAGE.copySrc,
+    ),
+    populationsB: createBuffer(
+      device,
+      "populations B",
+      new Float32Array(populationCount),
+      WEBGPU_BUFFER_USAGE.copySrc,
+    ),
     postCollision: createBuffer(
       device,
       "post-collision populations",
@@ -504,6 +729,27 @@ function createResources(
       size: DIAGNOSTIC_VALUE_COUNT * Float32Array.BYTES_PER_ELEMENT,
       usage: WEBGPU_BUFFER_USAGE.copyDst | WEBGPU_BUFFER_USAGE.mapRead,
     }),
+    fieldReadback: device.createBuffer({
+      label: "interactive field readback",
+      size: populationCount * Float32Array.BYTES_PER_ELEMENT,
+      usage: WEBGPU_BUFFER_USAGE.copyDst | WEBGPU_BUFFER_USAGE.mapRead,
+    }),
+    renderPixels: createBuffer(
+      device,
+      "GPU-rendered RGBA pixels",
+      new Uint32Array(geometry.cellCount),
+      WEBGPU_BUFFER_USAGE.copySrc,
+    ),
+    renderReadback: device.createBuffer({
+      label: "GPU-rendered frame readback",
+      size: geometry.cellCount * Uint32Array.BYTES_PER_ELEMENT,
+      usage: WEBGPU_BUFFER_USAGE.copyDst | WEBGPU_BUFFER_USAGE.mapRead,
+    }),
+    tracerStates: createBuffer(
+      device,
+      "GPU passive tracer states",
+      createInitialTracerStates(geometry),
+    ),
   };
 }
 
@@ -543,6 +789,41 @@ function createInitialPopulations(
   return populations;
 }
 
+function createInitialTracerStates(geometry: OpenCylinderGeometry): Float32Array {
+  const states = new Float32Array(TRACER_COUNT * 4);
+  for (let tracer = 0; tracer < TRACER_COUNT; tracer += 1) {
+    const lane = tracer % Math.max(1, geometry.height - 2);
+    const column = tracer % 12;
+    const x = 1 + (column / 12) * Math.max(1, geometry.width - 3);
+    const y = 1 + ((lane * 37) % Math.max(1, geometry.height - 2));
+    states[tracer * 4] = x;
+    states[tracer * 4 + 1] = y;
+    states[tracer * 4 + 2] = x;
+    states[tracer * 4 + 3] = y;
+  }
+  return states;
+}
+
+function macroscopic(
+  populations: Float32Array,
+  cell: number,
+): { readonly density: number; readonly velocityX: number; readonly velocityY: number } {
+  let density = 0;
+  let momentumX = 0;
+  let momentumY = 0;
+  for (let direction = 0; direction < 9; direction += 1) {
+    const population = populations[cell * 9 + direction]!;
+    density += population;
+    momentumX += population * D2Q9_OPEN_CYLINDER_CONTRACT.directions[direction]![0];
+    momentumY += population * D2Q9_OPEN_CYLINDER_CONTRACT.directions[direction]![1];
+  }
+  return {
+    density,
+    velocityX: density > 0 ? momentumX / density : 0,
+    velocityY: density > 0 ? momentumY / density : 0,
+  };
+}
+
 function createBuffer(
   device: WebGpuDeviceHandle,
   label: string,
@@ -580,6 +861,8 @@ function createPipelines(device: WebGpuDeviceHandle): WebGpuPipelines {
     forceReduction: pipeline("reduce_force"),
     boundaries: pipeline("apply_boundaries"),
     diagnostic: pipeline("reduce_diagnostics"),
+    render: pipeline("render_vorticity"),
+    tracers: pipeline("advance_tracers"),
   };
 }
 
@@ -633,6 +916,7 @@ function createBindGroups(
       [0, resources.parameters],
       [17, resources.postCollision],
       [18, next],
+      [25, current],
     ]),
   });
   const diagnostic = (label: string, populations: WebGpuBufferHandle) =>
@@ -645,6 +929,21 @@ function createBindGroups(
       [23, resources.forceAccumulation],
       [24, resources.diagnostic],
     ]);
+  const render = (label: string, populations: WebGpuBufferHandle) =>
+    group(label, pipelines.render, [
+      [0, resources.parameters],
+      [26, populations],
+      [27, resources.solid],
+      [28, resources.renderPixels],
+      [31, resources.tracerStates],
+    ]);
+  const tracers = (label: string, populations: WebGpuBufferHandle) =>
+    group(label, pipelines.tracers, [
+      [0, resources.parameters],
+      [29, populations],
+      [30, resources.solid],
+      [31, resources.tracerStates],
+    ]);
   return {
     aToB: stepGroups("A to B", resources.populationsA, resources.populationsB),
     bToA: stepGroups("B to A", resources.populationsB, resources.populationsA),
@@ -655,6 +954,10 @@ function createBindGroups(
     ]),
     diagnosticA: diagnostic("diagnostic A", resources.populationsA),
     diagnosticB: diagnostic("diagnostic B", resources.populationsB),
+    renderA: render("render A", resources.populationsA),
+    renderB: render("render B", resources.populationsB),
+    tracersA: tracers("tracers A", resources.populationsA),
+    tracersB: tracers("tracers B", resources.populationsB),
   };
 }
 
@@ -690,9 +993,9 @@ function validateWebGpuConfiguration(definition: ValidationCaseDefinition): void
     definition.configuration.backendId !== "webgpu-reference" ||
     definition.configuration.collision !== "D2Q9 TRT" ||
     definition.configuration.precision !== "float32" ||
-    boundaries.inlet !== "regularized-velocity" ||
-    boundaries.lateral !== "free-slip" ||
-    boundaries.outlet !== "fixed-density-nee" ||
+    !["regularized-velocity", "equilibrium-velocity"].includes(boundaries.inlet) ||
+    !["free-slip", "periodic"].includes(boundaries.lateral) ||
+    !["fixed-density-nee", "convective", "extrapolated"].includes(boundaries.outlet) ||
     boundaries.cylinder !== "linear-bfl"
   ) {
     throw new Error(
@@ -718,6 +1021,11 @@ fn force_normalizer() -> f32 { return parameters[${WEBGPU_PARAMETER_INDEX.forceN
 fn has_advanced() -> bool { return parameters[${WEBGPU_PARAMETER_INDEX.hasAdvanced}] >= 0.5; }
 fn streamwise_reflection_mode() -> bool { return parameters[${WEBGPU_PARAMETER_INDEX.upstreamReflectionMode}] >= 0.5; }
 fn steps_since_sample() -> f32 { return max(parameters[${WEBGPU_PARAMETER_INDEX.stepsSinceSample}], 1.0); }
+fn equilibrium_inlet() -> bool { return parameters[${WEBGPU_PARAMETER_INDEX.inletMode}] >= 0.5; }
+fn periodic_lateral() -> bool { return parameters[${WEBGPU_PARAMETER_INDEX.lateralMode}] >= 0.5; }
+fn outlet_mode() -> u32 { return u32(parameters[${WEBGPU_PARAMETER_INDEX.outletMode}]); }
+fn render_flow_increment() -> f32 { return parameters[${WEBGPU_PARAMETER_INDEX.renderFlowIncrement}]; }
+fn tracers_enabled() -> bool { return parameters[${WEBGPU_PARAMETER_INDEX.tracersEnabled}] >= 0.5; }
 
 fn cx(direction: u32) -> i32 {
   let values = array<i32, 9>(${WGSL_CX});
@@ -813,7 +1121,11 @@ fn stream(@builtin(global_invocation_id) id: vec3<u32>) {
   let x = i32(cell % width());
   let y = i32(cell / width());
   let source_x = x - cx(direction);
-  let source_y = y - cy(direction);
+  var source_y = y - cy(direction);
+  if (periodic_lateral()) {
+    if (source_y < 0) { source_y += i32(height()); }
+    if (source_y >= i32(height())) { source_y -= i32(height()); }
+  }
   if (source_x < 0 || source_x >= i32(width()) || source_y < 0 || source_y >= i32(height())) {
     stream_next[link] = 0.0;
     return;
@@ -863,6 +1175,7 @@ fn reduce_force() {
 
 @group(0) @binding(17) var<storage, read> boundary_post: array<f32>;
 @group(0) @binding(18) var<storage, read_write> boundary_next: array<f32>;
+@group(0) @binding(25) var<storage, read> boundary_current: array<f32>;
 
 fn boundary_macro(base: u32) -> vec3<f32> {
   let f0 = boundary_next[base];
@@ -883,20 +1196,28 @@ fn inlet_density(base: u32) -> f32 {
 
 @compute @workgroup_size(1)
 fn apply_boundaries() {
-  for (var x = 0u; x < width(); x += 1u) {
-    let bottom = x * 9u;
-    boundary_next[bottom + 2u] = boundary_post[bottom + 4u];
-    boundary_next[bottom + 5u] = boundary_post[bottom + 8u];
-    boundary_next[bottom + 6u] = boundary_post[bottom + 7u];
-    let top = ((height() - 1u) * width() + x) * 9u;
-    boundary_next[top + 4u] = boundary_post[top + 2u];
-    boundary_next[top + 7u] = boundary_post[top + 6u];
-    boundary_next[top + 8u] = boundary_post[top + 5u];
+  if (!periodic_lateral()) {
+    for (var x = 0u; x < width(); x += 1u) {
+      let bottom = x * 9u;
+      boundary_next[bottom + 2u] = boundary_post[bottom + 4u];
+      boundary_next[bottom + 5u] = boundary_post[bottom + 8u];
+      boundary_next[bottom + 6u] = boundary_post[bottom + 7u];
+      let top = ((height() - 1u) * width() + x) * 9u;
+      boundary_next[top + 4u] = boundary_post[top + 2u];
+      boundary_next[top + 7u] = boundary_post[top + 6u];
+      boundary_next[top + 8u] = boundary_post[top + 5u];
+    }
   }
   for (var y = 0u; y < height(); y += 1u) {
     let base = (y * width()) * 9u;
     let neighbour_base = (y * width() + 1u) * 9u;
     let rho = inlet_density(base);
+    if (equilibrium_inlet()) {
+      for (var direction = 0u; direction < 9u; direction += 1u) {
+        boundary_next[base + direction] = equilibrium(direction, rho, lattice_speed(), 0.0);
+      }
+      continue;
+    }
     let neighbour = boundary_macro(neighbour_base);
     var stress_xx = 0.0;
     var stress_xy = 0.0;
@@ -918,12 +1239,106 @@ fn apply_boundaries() {
   for (var y = 0u; y < height(); y += 1u) {
     let base = (y * width() + width() - 1u) * 9u;
     let neighbour_base = base - 9u;
+    if (outlet_mode() == 1u) {
+      let denominator = 1.0 + lattice_speed();
+      for (var direction = 0u; direction < 9u; direction += 1u) {
+        boundary_next[base + direction] = (boundary_current[base + direction] + lattice_speed() * boundary_next[neighbour_base + direction]) / denominator;
+      }
+      continue;
+    }
+    if (outlet_mode() == 2u) {
+      for (var direction = 0u; direction < 9u; direction += 1u) {
+        boundary_next[base + direction] = boundary_next[neighbour_base + direction];
+      }
+      continue;
+    }
     let neighbour = boundary_macro(neighbour_base);
     for (var direction = 0u; direction < 9u; direction += 1u) {
       let non_equilibrium = boundary_next[neighbour_base + direction] - equilibrium(direction, neighbour.x, neighbour.y, neighbour.z);
       boundary_next[base + direction] = equilibrium(direction, 1.0, neighbour.y, neighbour.z) + non_equilibrium;
     }
   }
+}
+
+@group(0) @binding(26) var<storage, read> render_populations: array<f32>;
+@group(0) @binding(27) var<storage, read> render_solid: array<u32>;
+@group(0) @binding(28) var<storage, read_write> render_pixels: array<u32>;
+@group(0) @binding(29) var<storage, read> tracer_populations: array<f32>;
+@group(0) @binding(30) var<storage, read> tracer_solid: array<u32>;
+@group(0) @binding(31) var<storage, read_write> tracer_states: array<vec4<f32>>;
+
+@compute @workgroup_size(${WORKGROUP_SIZE})
+fn advance_tracers(@builtin(global_invocation_id) invocation: vec3<u32>) {
+  let tracer = invocation.x;
+  if (tracer >= ${TRACER_COUNT}u) { return; }
+  let state = tracer_states[tracer];
+  let px = u32(clamp(round(state.x), 0.0, f32(width() - 1u)));
+  let py = u32(clamp(round(state.y), 0.0, f32(height() - 1u)));
+  let cell = py * width() + px;
+  let velocity = macroscopic(&tracer_populations, cell * 9u).yz;
+  let lattice_steps = render_flow_increment() * cylinder_diameter() / lattice_speed();
+  var next = state.xy + velocity * lattice_steps;
+  let next_x = u32(clamp(round(next.x), 0.0, f32(width() - 1u)));
+  let next_y = u32(clamp(round(next.y), 0.0, f32(height() - 1u)));
+  let next_cell = next_y * width() + next_x;
+  if (
+    next.x < 1.0 || next.x >= f32(width() - 1u) ||
+    next.y < 1.0 || next.y >= f32(height() - 1u) ||
+    tracer_solid[next_cell] == 1u
+  ) {
+    next = vec2<f32>(1.0, 1.0 + f32((tracer * 37u) % (height() - 2u)));
+  }
+  tracer_states[tracer] = vec4<f32>(next, state.xy);
+}
+
+fn pack_rgba(red: f32, green: f32, blue: f32) -> u32 {
+  let r = u32(clamp(round(red), 0.0, 255.0));
+  let g = u32(clamp(round(green), 0.0, 255.0));
+  let b = u32(clamp(round(blue), 0.0, 255.0));
+  return r | (g << 8u) | (b << 16u) | (255u << 24u);
+}
+
+fn segment_distance(point: vec2<f32>, start: vec2<f32>, finish: vec2<f32>) -> f32 {
+  let segment = finish - start;
+  let length_squared = dot(segment, segment);
+  let position = select(0.0, clamp(dot(point - start, segment) / length_squared, 0.0, 1.0), length_squared > 0.0);
+  return distance(point, start + position * segment);
+}
+
+@compute @workgroup_size(${WORKGROUP_SIZE})
+fn render_vorticity(@builtin(global_invocation_id) invocation: vec3<u32>) {
+  let cell = invocation.x;
+  if (cell >= cell_count()) { return; }
+  if (render_solid[cell] == 1u) {
+    render_pixels[cell] = pack_rgba(232.0, 235.0, 238.0);
+    return;
+  }
+  let x = cell % width();
+  let y = cell / width();
+  var normalised = 0.0;
+  if (x > 0u && y > 0u && x + 1u < width() && y + 1u < height()) {
+    let left = macroscopic(&render_populations, (cell - 1u) * 9u);
+    let right = macroscopic(&render_populations, (cell + 1u) * 9u);
+    let below = macroscopic(&render_populations, (cell - width()) * 9u);
+    let above = macroscopic(&render_populations, (cell + width()) * 9u);
+    let vorticity = 0.5 * (right.z - left.z - above.y + below.y);
+    normalised = clamp(vorticity * cylinder_diameter() / lattice_speed(), -2.0, 2.0);
+  }
+  let amount = abs(normalised) / 2.0;
+  let target_colour = select(vec3<f32>(221.0, 107.0, 32.0), vec3<f32>(43.0, 108.0, 176.0), normalised < 0.0);
+  var colour = mix(vec3<f32>(23.0, 26.0, 31.0), target_colour, amount);
+  if (tracers_enabled()) {
+    let point = vec2<f32>(f32(x) + 0.5, f32(y) + 0.5);
+    var nearest = 2.0;
+    for (var tracer = 0u; tracer < ${TRACER_COUNT}u; tracer += 1u) {
+      let state = tracer_states[tracer];
+      nearest = min(nearest, segment_distance(point, state.zw, state.xy));
+    }
+    if (nearest < 0.8) {
+      colour = mix(colour, vec3<f32>(245.0, 247.0, 250.0), 0.75 * (1.0 - nearest / 0.8));
+    }
+  }
+  render_pixels[cell] = pack_rgba(colour.x, colour.y, colour.z);
 }
 
 @group(0) @binding(19) var<storage, read> diagnostic_populations: array<f32>;

@@ -8,6 +8,7 @@ test("production CPU Worker renders, resizes, rejects stale events, and disposes
     auditedCommands.push(type);
   });
   await page.addInitScript(() => {
+    localStorage.setItem("cfd-visualise-quality-tier", "cpu-balanced-d18");
     const NativeWorker = globalThis.Worker;
     class AuditedWorker extends NativeWorker {
       public override postMessage(
@@ -48,7 +49,14 @@ test("production CPU Worker renders, resizes, rejects stale events, and disposes
 
   const wake = page.getByRole("img", { name: /full-domain wake view/i });
   await expect(wake).toBeVisible();
-  await expect(page.getByText(/CPU balanced/)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/CPU balanced · cpu-reference/)).toBeVisible({
+    timeout: 20_000,
+  });
+  const validation = page.getByRole("region", { name: "Method and validation" });
+  await expect(validation).toHaveAttribute("data-evidence-state", "passing");
+  await expect(
+    validation.getByText("cpu-reference / cpu-balanced-d18 / ticket-06"),
+  ).toBeVisible();
   await expect(page.getByRole("checkbox", { name: /passive tracers/i })).not.toBeChecked();
   await expect(page.getByText("paused", { exact: true })).toBeVisible();
 

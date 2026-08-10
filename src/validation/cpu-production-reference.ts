@@ -1,6 +1,8 @@
 import { DOMAIN_AND_BOUNDARY_VALIDATION_SUITE } from "./domain-boundary-reference.js";
 import {
   CPU_PRODUCTION_CELLS_PER_DIAMETER,
+  CPU_PRODUCTION_DEFAULT_PLAYBACK_RATE,
+  CPU_PRODUCTION_MINIMUM_BENCHMARK_RATE,
   CPU_PRODUCTION_QUALITY_TIER_ID,
 } from "./cpu-production-config.js";
 import { FULL_REYNOLDS_ENVELOPE_VALIDATION_SUITE } from "./full-reynolds-envelope-reference.js";
@@ -35,6 +37,16 @@ export const CPU_PRODUCTION_VALIDATION_SUITE = Object.freeze({
     ...DOMAIN_AND_BOUNDARY_VALIDATION_SUITE.metricVersions,
   }),
   evidenceScope: DOMAIN_AND_BOUNDARY_VALIDATION_SUITE.evidenceScope,
+  qualityTier: Object.freeze({
+    id: CPU_PRODUCTION_QUALITY_TIER_ID,
+    cellsPerDiameter: CPU_PRODUCTION_CELLS_PER_DIAMETER,
+    defaultPlaybackRate: CPU_PRODUCTION_DEFAULT_PLAYBACK_RATE,
+    performance: Object.freeze({
+      benchmarkVersion: "local-fixed-step-throughput-v1",
+      minimumFlowThroughTimePerSecond: CPU_PRODUCTION_MINIMUM_BENCHMARK_RATE,
+      maximumGuideDurationSeconds: 90,
+    }),
+  }),
   cases: Object.freeze(evidenceCases),
   reconciliations: Object.freeze([
     ...GRID_AND_PLACEMENT_CONVERGENCE_VALIDATION_SUITE.reconciliations,
@@ -47,6 +59,7 @@ export const CPU_PRODUCTION_CANONICAL_VALIDATION_SUITE = Object.freeze({
   id: "cpu-production-d18-canonical-envelope-v1",
   metricVersions: CPU_PRODUCTION_VALIDATION_SUITE.metricVersions,
   evidenceScope: DOMAIN_AND_BOUNDARY_VALIDATION_SUITE.evidenceScope,
+  qualityTier: CPU_PRODUCTION_VALIDATION_SUITE.qualityTier,
   cases: Object.freeze(canonicalCases),
   reconciliations: Object.freeze([]),
 } satisfies ValidationSuite);

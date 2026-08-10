@@ -11,15 +11,6 @@ import manifestInput from "./cpu-production-manifest.json";
 
 export const CPU_PRODUCTION_MANIFEST = parseValidationManifest(manifestInput);
 
-if (
-  CPU_PRODUCTION_MANIFEST.backend.id !== CPU_REFERENCE_BACKEND_IDENTITY.id ||
-  CPU_PRODUCTION_MANIFEST.backend.buildId !== CPU_REFERENCE_BACKEND_IDENTITY.buildId ||
-  CPU_PRODUCTION_MANIFEST.backend.solverVersion !==
-    CPU_REFERENCE_BACKEND_IDENTITY.solverVersion
-) {
-  throw new Error("Bundled CPU production evidence does not match the active solver build.");
-}
-
 export const CPU_PRODUCTION_TIER = Object.freeze({
   id: CPU_PRODUCTION_QUALITY_TIER_ID,
   backendId: CPU_REFERENCE_BACKEND_IDENTITY.id,
@@ -37,7 +28,3 @@ export const CPU_PRODUCTION_VALIDATION = createMethodAndValidationModel(
     buildId: CPU_PRODUCTION_TIER.buildId,
   },
 );
-
-if (CPU_PRODUCTION_VALIDATION.status !== "validated") {
-  throw new Error(CPU_PRODUCTION_VALIDATION.reason);
-}

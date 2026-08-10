@@ -28,7 +28,7 @@ export const WEBGPU_BACKEND_IDENTITY = Object.freeze({
   kind: "webgpu",
   solver: "D2Q9 TRT/BFL open-cylinder WebGPU",
   solverVersion: "1.0.0",
-  buildId: "ticket-07",
+  buildId: "ticket-08",
 } satisfies BackendIdentity);
 
 export interface WebGpuPlatform {
