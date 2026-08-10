@@ -1,6 +1,5 @@
-import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
@@ -9,6 +8,7 @@ import {
   stopViteServer,
   waitForViteServer,
 } from "./vite-server.mjs";
+import { validationEvidenceSourceFingerprint } from "./validation-evidence.mjs";
 
 const port = 4174;
 const origin = `http://127.0.0.1:${port}`;
@@ -19,7 +19,7 @@ const intermediateDirectory = resolve(
 const requestedComponent = process.argv
   .find((argument) => argument.startsWith("--component="))
   ?.slice("--component=".length);
-const evidenceFingerprint = await sourceFingerprint();
+const evidenceFingerprint = (await validationEvidenceSourceFingerprint()).slice(0, 16);
 
 await mkdir(intermediateDirectory, { recursive: true });
 
@@ -207,29 +207,4 @@ function runComponent(component) {
 
 function componentPath(component) {
   return resolve(intermediateDirectory, `${component}-${evidenceFingerprint}.json`);
-}
-
-async function sourceFingerprint() {
-  const files = [
-    ...(await sourceFiles(resolve("src"))),
-    resolve("scripts/generate-webgpu-backend-manifest.mjs"),
-    resolve("scripts/webgpu-chrome-profile.json"),
-    resolve("package-lock.json"),
-  ].sort();
-  const hash = createHash("sha256");
-  for (const file of files) {
-    hash.update(file.replaceAll("\\", "/"));
-    hash.update(await readFile(file));
-  }
-  return hash.digest("hex").slice(0, 16);
-}
-
-async function sourceFiles(directory) {
-  const files = [];
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const path = resolve(directory, entry.name);
-    if (entry.isDirectory()) files.push(...await sourceFiles(path));
-    else if (entry.isFile() && entry.name.endsWith(".ts")) files.push(path);
-  }
-  return files;
 }
