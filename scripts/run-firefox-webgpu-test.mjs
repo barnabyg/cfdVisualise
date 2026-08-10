@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { access, mkdtemp, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -80,7 +80,7 @@ const WEBGPU_EVIDENCE_IDENTITY =
 const firefoxBinary = await resolveFirefoxBinary();
 const bidiPort = await reservePort();
 const profilePath = await mkdtemp(join(tmpdir(), "cfd-firefox-webgpu-"));
-const vite = spawnViteServer({ port: APP_PORT });
+const vite = spawnViteServer({ port: APP_PORT, preview: true });
 const firefox = spawn(
   firefoxBinary,
   [
@@ -204,6 +204,7 @@ try {
     remainingGuideTime,
   );
   const durationSeconds = (performance.now() - guideStartedAt) / 1_000;
+  await writeGuidePerformanceMeasurement(durationSeconds);
   if (durationSeconds > 90) {
     throw new Error(`Firefox WebGPU guide took ${durationSeconds.toFixed(2)}s; maximum is 90s.`);
   }
@@ -230,6 +231,28 @@ try {
       retryDelay: 200,
     });
   }
+}
+
+async function writeGuidePerformanceMeasurement(guideDurationSeconds) {
+  const outputDirectory = process.env.CFD_GUIDE_PERFORMANCE_DIR;
+  if (outputDirectory === undefined) return;
+  const resolvedOutput = resolve(outputDirectory);
+  await mkdir(resolvedOutput, { recursive: true });
+  await writeFile(
+    resolve(resolvedOutput, "webgpu-firefox.json"),
+    `${JSON.stringify(
+      {
+        schemaVersion: "1",
+        backendId: "webgpu-reference",
+        qualityTier: "webgpu-balanced-d18",
+        browser: "firefox",
+        guideDurationSeconds,
+      },
+      undefined,
+      2,
+    )}\n`,
+    "utf8",
+  );
 }
 
 async function resolveFirefoxBinary() {
