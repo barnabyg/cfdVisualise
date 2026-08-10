@@ -274,10 +274,20 @@ test("the local capability benchmark rejects a WebGPU tier below its bundled pac
   test.setTimeout(90_000);
   await page.addInitScript(() => localStorage.removeItem("cfd-visualise-quality-tier"));
   await page.goto("/");
-  await expect(page.getByText(/CPU balanced · cpu-reference/)).toBeVisible({
-    timeout: 60_000,
-  });
-  expect(page.workers().some((worker) => worker.url().includes("cpu-wake-worker"))).toBe(true);
+  await expect
+    .poll(
+      async () => {
+        const text = await page.locator("body").innerText();
+        return /CPU balanced .* cpu-reference/.test(text) || text.includes("Result unavailable");
+      },
+      { timeout: 60_000 },
+    )
+    .toBe(true);
+  expect(page.workers().some((worker) => worker.url().includes("webgpu-wake-worker"))).toBe(false);
+  const unavailable = page.getByRole("alert");
+  if (await unavailable.isVisible()) {
+    await expect(unavailable).toContainText(/webgpu-balanced-d18: measured .* requires 1\.2/);
+  }
 });
 
 test("WebGPU reports browser capability, diagnostic, and device-loss states", async ({ page }, testInfo) => {

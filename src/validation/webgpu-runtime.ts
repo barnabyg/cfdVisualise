@@ -17,6 +17,7 @@ import {
   WEBGPU_MAP_MODE_READ,
   type WebGpuBindGroupHandle,
   type WebGpuBufferHandle,
+  type WebGpuCommandEncoderHandle,
   type WebGpuComputePassHandle,
   type WebGpuComputePipelineHandle,
   type WebGpuDeviceHandle,
@@ -84,6 +85,13 @@ export interface WebGpuCaseRuntime {
 }
 
 export interface WebGpuInteractiveCaseExecution extends FixedStepCaseExecution {
+  advanceAndSample(options: {
+    readonly stepCount: number;
+    readonly reynoldsNumber: number;
+    readonly step: number;
+    readonly flowThroughTime: number;
+    readonly stepsSinceSample: number;
+  }): Promise<ValidationSample>;
   renderFrame(flowThroughIncrement: number, tracersEnabled: boolean): Promise<{
     readonly width: number;
     readonly height: number;
@@ -188,6 +196,13 @@ export async function createWebGpuInteractiveCase(
             () => execution.perturbWake(amplitude),
           );
         },
+        advanceAndSample(options) {
+          return classifyNativeWebGpuFailure(
+            device,
+            `WebGPU interactive case ${definition.id} advance and sample`,
+            () => execution.advanceAndSample(options),
+          );
+        },
         renderFrame(flowThroughIncrement, tracersEnabled) {
           return classifyNativeWebGpuFailure(
             device,
@@ -282,40 +297,48 @@ class WebGpuCaseExecution {
   }
 
   public async advance(stepCount: number, reynoldsNumber: number): Promise<void> {
-    if (!Number.isInteger(stepCount) || stepCount <= 0) {
-      throw new RangeError(
-        "WebGPU fixed-step advancement requires a positive integer step count.",
-      );
-    }
-    if (!this.hasAdvanced && this.initialPerturbedPopulations !== undefined) {
-      this.device.queue.writeBuffer(
-        this.resources.populationsA,
-        0,
-        this.initialPerturbedPopulations,
-      );
-    }
-    this.currentReynoldsNumber = reynoldsNumber;
+    this.prepareAdvance(stepCount, reynoldsNumber);
     this.writeParameters(this.currentReynoldsNumber, stepCount);
     this.device.pushErrorScope("validation");
     const encoder = this.device.createCommandEncoder({
       label: `WebGPU ${this.definition.id} fixed steps`,
     });
     const pass = encoder.beginComputePass();
-    for (let step = 0; step < stepCount; step += 1) {
-      const direction = this.populationsAIsCurrent ? "aToB" : "bToA";
-      dispatchStep(
-        pass,
-        this.pipelines,
-        this.bindGroups[direction],
-        this.bindGroups.forceReduction,
-        this.geometry,
-      );
-      this.populationsAIsCurrent = !this.populationsAIsCurrent;
-    }
+    this.dispatchSteps(pass, stepCount);
     pass.end();
     this.device.queue.submit([encoder.finish()]);
     await this.submittedWork(`WebGPU case ${this.definition.id} fixed-step execution failed`);
-    this.hasAdvanced = true;
+  }
+
+  public async advanceAndSample({
+    stepCount,
+    reynoldsNumber,
+    step,
+    flowThroughTime,
+    stepsSinceSample,
+  }: {
+    readonly stepCount: number;
+    readonly reynoldsNumber: number;
+    readonly step: number;
+    readonly flowThroughTime: number;
+    readonly stepsSinceSample: number;
+  }): Promise<ValidationSample> {
+    this.prepareAdvance(stepCount, reynoldsNumber);
+    this.writeParameters(this.currentReynoldsNumber, stepsSinceSample);
+    this.device.pushErrorScope("validation");
+    const encoder = this.device.createCommandEncoder({
+      label: `WebGPU ${this.definition.id} interactive advance and diagnostic`,
+    });
+    const pass = encoder.beginComputePass();
+    this.dispatchSteps(pass, stepCount);
+    this.dispatchDiagnostic(pass);
+    pass.end();
+    this.copyDiagnostic(encoder);
+    this.device.queue.submit([encoder.finish()]);
+    await this.submittedWork(
+      `WebGPU case ${this.definition.id} interactive advance and diagnostic failed`,
+    );
+    return this.readDiagnostic(step, flowThroughTime);
   }
 
   public async validateShader(): Promise<void> {
@@ -341,6 +364,47 @@ class WebGpuCaseExecution {
       label: `WebGPU ${this.definition.id} diagnostic reduction`,
     });
     const pass = encoder.beginComputePass();
+    this.dispatchDiagnostic(pass);
+    pass.end();
+    this.copyDiagnostic(encoder);
+    this.device.pushErrorScope("validation");
+    this.device.queue.submit([encoder.finish()]);
+    await this.submittedWork(`WebGPU case ${this.definition.id} diagnostic reduction failed`);
+    return this.readDiagnostic(step, flowThroughTime);
+  }
+
+  private prepareAdvance(stepCount: number, reynoldsNumber: number): void {
+    if (!Number.isInteger(stepCount) || stepCount <= 0) {
+      throw new RangeError(
+        "WebGPU fixed-step advancement requires a positive integer step count.",
+      );
+    }
+    if (!this.hasAdvanced && this.initialPerturbedPopulations !== undefined) {
+      this.device.queue.writeBuffer(
+        this.resources.populationsA,
+        0,
+        this.initialPerturbedPopulations,
+      );
+    }
+    this.hasAdvanced = true;
+    this.currentReynoldsNumber = reynoldsNumber;
+  }
+
+  private dispatchSteps(pass: WebGpuComputePassHandle, stepCount: number): void {
+    for (let step = 0; step < stepCount; step += 1) {
+      const direction = this.populationsAIsCurrent ? "aToB" : "bToA";
+      dispatchStep(
+        pass,
+        this.pipelines,
+        this.bindGroups[direction],
+        this.bindGroups.forceReduction,
+        this.geometry,
+      );
+      this.populationsAIsCurrent = !this.populationsAIsCurrent;
+    }
+  }
+
+  private dispatchDiagnostic(pass: WebGpuComputePassHandle): void {
     pass.setPipeline(this.pipelines.diagnostic);
     pass.setBindGroup(
       0,
@@ -349,7 +413,9 @@ class WebGpuCaseExecution {
         : this.bindGroups.diagnosticB,
     );
     pass.dispatchWorkgroups(1);
-    pass.end();
+  }
+
+  private copyDiagnostic(encoder: WebGpuCommandEncoderHandle): void {
     encoder.copyBufferToBuffer(
       this.resources.diagnostic,
       0,
@@ -357,19 +423,16 @@ class WebGpuCaseExecution {
       0,
       DIAGNOSTIC_VALUE_COUNT * Float32Array.BYTES_PER_ELEMENT,
     );
-    this.device.pushErrorScope("validation");
-    this.device.queue.submit([encoder.finish()]);
-    await this.submittedWork(`WebGPU case ${this.definition.id} diagnostic reduction failed`);
-    await this.resources.readback.mapAsync(
-      WEBGPU_MAP_MODE_READ,
-      0,
-      DIAGNOSTIC_VALUE_COUNT * Float32Array.BYTES_PER_ELEMENT,
-    );
+  }
+
+  private async readDiagnostic(
+    step: number,
+    flowThroughTime: number,
+  ): Promise<ValidationSample> {
+    const byteLength = DIAGNOSTIC_VALUE_COUNT * Float32Array.BYTES_PER_ELEMENT;
+    await this.resources.readback.mapAsync(WEBGPU_MAP_MODE_READ, 0, byteLength);
     const values = new Float32Array(
-      this.resources.readback.getMappedRange(
-        0,
-        DIAGNOSTIC_VALUE_COUNT * Float32Array.BYTES_PER_ELEMENT,
-      ),
+      this.resources.readback.getMappedRange(0, byteLength),
     ).slice();
     this.resources.readback.unmap();
     this.device.queue.writeBuffer(this.resources.forceAccumulation, 0, this.zeroForce);

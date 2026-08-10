@@ -20,7 +20,7 @@ import {
 } from "./physical-scenario.js";
 
 const ADAPTING_FLOW_THROUGH_TIME = 4;
-const ADAPTATION_WAKE_PERTURBATION = 0.001;
+const ADAPTATION_WAKE_PERTURBATION = 0.002;
 
 export interface WebGpuWakeSimulationSummary {
   readonly availability: "available" | "unavailable";
@@ -85,23 +85,18 @@ export class WebGpuWakeSimulation {
     const stepCount = targetStep - this.stepCount;
     if (stepCount <= 0) return this.summary();
     await this.updateAdaptation();
-    await this.execution.execute({
-      type: "advance-fixed-steps",
+    const sample = await this.execution.advanceAndSample({
       stepCount,
       reynoldsNumber: this.currentReynoldsNumber,
+      step: targetStep,
+      flowThroughTime:
+        (targetStep * this.execution.latticeSpeed) / this.execution.cylinderDiameter,
+      stepsSinceSample: targetStep - this.sampledStep,
     });
     this.stepCount = targetStep;
-    const sample = await this.execution.execute({
-      type: "sample-diagnostics",
-      step: this.stepCount,
-      flowThroughTime: this.flowThroughTime(),
-      stepsSinceSample: this.stepCount - this.sampledStep,
-    });
     this.sampledStep = this.stepCount;
-    if (sample !== undefined) {
-      this.samples.push(sample);
-      this.measureRegime(sample);
-    }
+    this.samples.push(sample);
+    this.measureRegime(sample);
     return this.summary();
   }
 

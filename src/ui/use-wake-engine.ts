@@ -5,6 +5,7 @@ import {
   reynoldsNumber,
   type PhysicalScenario,
 } from "../engine/physical-scenario.js";
+import { WebGpuWakeSimulation } from "../engine/webgpu-wake-simulation.js";
 import {
   ENGINE_PROTOCOL_VERSION,
   createEngineEventGate,
@@ -25,8 +26,6 @@ import {
 } from "../engine/quality-tiers.js";
 import { CPU_PRODUCTION_TIER } from "../engine/cpu-tier.js";
 import { createWebGpuValidationBackend } from "../validation/webgpu-backend.js";
-import { WEBGPU_PRODUCTION_VALIDATION_SUITE } from "../validation/webgpu-reference.js";
-import { createWebGpuInteractiveCase } from "../validation/webgpu-runtime.js";
 import { CPU_PRODUCTION_VALIDATION_SUITE } from "../validation/cpu-production-reference.js";
 
 interface TransferableCanvasElement extends HTMLCanvasElement {
@@ -335,27 +334,27 @@ export async function benchmarkBrowserQualityTier(
   if (backend.status !== "ready") {
     return { status: "unsupported", reason: backend.message };
   }
+  let simulation: WebGpuWakeSimulation | undefined;
   try {
-    const definition = WEBGPU_PRODUCTION_VALIDATION_SUITE.cases[0];
-    if (definition === undefined) {
-      return { status: "unsupported", reason: "No bundled WebGPU benchmark case." };
+    simulation = await WebGpuWakeSimulation.create(
+      backend.device,
+      DEFAULT_PHYSICAL_SCENARIO,
+    );
+    for (let index = 0; index < 2; index += 1) {
+      await simulation.advanceBy(0.4);
     }
-    const execution = await createWebGpuInteractiveCase(backend.device, definition);
-    const stepCount = 32;
+    await simulation.renderFrame(0.8, true);
+
+    const advanceCount = 4;
     const started = performance.now();
-    await execution.execute({
-      type: "advance-fixed-steps",
-      stepCount,
-      reynoldsNumber: definition.reynoldsNumber,
-    });
-    await execution.renderFrame(0.4, true);
+    for (let index = 0; index < advanceCount; index += 1) {
+      await simulation.advanceBy(0.4);
+      if ((index + 1) % 2 === 0) await simulation.renderFrame(0.8, true);
+    }
     const elapsedSeconds = Math.max((performance.now() - started) / 1000, Number.EPSILON);
-    await execution.execute({ type: "dispose" });
-    const flowThroughTime =
-      (stepCount * execution.latticeSpeed) / execution.cylinderDiameter;
     return {
       status: "supported",
-      flowThroughTimePerSecond: flowThroughTime / elapsedSeconds,
+      flowThroughTimePerSecond: (advanceCount * 0.4) / elapsedSeconds,
     };
   } catch (error) {
     return {
@@ -363,7 +362,11 @@ export async function benchmarkBrowserQualityTier(
       reason: error instanceof Error ? error.message : String(error),
     };
   } finally {
-    backend.device.destroy();
+    try {
+      await simulation?.dispose();
+    } finally {
+      backend.device.destroy();
+    }
   }
 }
 

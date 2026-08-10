@@ -18,6 +18,7 @@ interface WakeWorkerScope {
 const scope = self as unknown as WakeWorkerScope;
 const FIXED_STEP_FLOW_THROUGH_TIME = 0.05;
 const PLAYBACK_ADVANCE_FLOW_THROUGH_TIME = 0.4;
+const PLAYBACK_ADVANCES_PER_FRAME = 2;
 
 let sessionId: string | undefined;
 let sequence = 0;
@@ -34,6 +35,8 @@ let tracersEnabled = true;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let lastAdvanceAt = performance.now();
 let lastAdvanceDuration = 0;
+let advancesSinceFrame = 0;
+let pendingRenderFlowThroughTime = 0;
 let commandQueue = Promise.resolve();
 
 type EngineEventPayload =
@@ -62,7 +65,7 @@ async function handleCommand(data: EngineCommand): Promise<void> {
   switch (data.type) {
     case "resize":
       resizeRenderCanvas(data.viewport);
-      await renderFrame(0);
+      await presentPendingFrame();
       break;
     case "play":
       playback = "playing";
@@ -71,6 +74,7 @@ async function handleCommand(data: EngineCommand): Promise<void> {
       break;
     case "pause":
       pause();
+      await presentPendingFrame();
       emitSummary();
       break;
     case "step":
@@ -80,6 +84,7 @@ async function handleCommand(data: EngineCommand): Promise<void> {
     case "restart":
       await simulation.restart();
       clearTracers();
+      resetPendingFrame();
       await renderFrame(0);
       emitSummary();
       break;
@@ -88,7 +93,7 @@ async function handleCommand(data: EngineCommand): Promise<void> {
       break;
     case "set-scenario":
       await simulation.setScenario(data.scenario);
-      await renderFrame(0);
+      await presentPendingFrame();
       emitSummary();
       break;
     case "set-playback-rate":
@@ -101,7 +106,7 @@ async function handleCommand(data: EngineCommand): Promise<void> {
     case "set-tracers-enabled":
       tracersEnabled = data.enabled;
       if (!tracersEnabled) clearTracers();
-      await renderFrame(0);
+      await presentPendingFrame();
       emitSummary();
       break;
     case "dispose":
@@ -146,6 +151,7 @@ async function initialise(
   tracersEnabled = !command.reducedMotion;
   targetPlaybackRate = WEBGPU_PRODUCTION_TIER.defaultPlaybackRate;
   achievedPlaybackRate = 0;
+  resetPendingFrame();
   await renderFrame(0);
   emit({ type: "ready", tier: WEBGPU_PRODUCTION_TIER });
   emitSummary();
@@ -184,8 +190,23 @@ async function advance(amount: number): Promise<void> {
     emitUnavailable(summary.unavailableReason ?? "Numerical health checks failed.");
     return;
   }
-  await renderFrame(amount);
+  pendingRenderFlowThroughTime += amount;
+  advancesSinceFrame += 1;
+  if (playback !== "playing" || advancesSinceFrame >= PLAYBACK_ADVANCES_PER_FRAME) {
+    await presentPendingFrame();
+  }
   emitSummary();
+}
+
+async function presentPendingFrame(): Promise<void> {
+  const flowThroughIncrement = pendingRenderFlowThroughTime;
+  resetPendingFrame();
+  await renderFrame(flowThroughIncrement);
+}
+
+function resetPendingFrame(): void {
+  advancesSinceFrame = 0;
+  pendingRenderFlowThroughTime = 0;
 }
 
 async function renderFrame(_flowThroughIncrement: number): Promise<void> {
@@ -218,7 +239,7 @@ async function renderFrame(_flowThroughIncrement: number): Promise<void> {
 
 async function captureStill(): Promise<void> {
   if (simulation === undefined) return;
-  await renderFrame(0);
+  await presentPendingFrame();
   const captureCanvas = renderCanvas ?? fieldCanvas;
   if (captureCanvas === undefined) throw new Error("The Worker renderer is unavailable.");
   const image = await captureCanvas.convertToBlob({ type: "image/png" });

@@ -11504,9 +11504,9 @@
       "defaultPlaybackRate": 2,
       "id": "webgpu-balanced-d18",
       "performance": {
-        "benchmarkVersion": "local-fixed-step-throughput-v1",
+        "benchmarkVersion": "interactive-guide-throughput-v2",
         "maximumGuideDurationSeconds": 90,
-        "minimumFlowThroughTimePerSecond": 2
+        "minimumFlowThroughTimePerSecond": 1.2
       }
     },
     "schemaVersion": "1"

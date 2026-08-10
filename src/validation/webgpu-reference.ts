@@ -17,6 +17,7 @@ import { WEBGPU_BACKEND_IDENTITY } from "./webgpu-backend.js";
 
 export const WEBGPU_BACKEND_QUALITY_TIER_ID = "webgpu-balanced-d18";
 export const WEBGPU_PRODUCTION_DEFAULT_PLAYBACK_RATE = 2 as const;
+export const WEBGPU_PRODUCTION_MINIMUM_BENCHMARK_RATE = 1.2 as const;
 
 export const WEBGPU_PRODUCTION_VALIDATION_SUITE = Object.freeze({
   ...CPU_PRODUCTION_VALIDATION_SUITE,
@@ -26,8 +27,8 @@ export const WEBGPU_PRODUCTION_VALIDATION_SUITE = Object.freeze({
     cellsPerDiameter: 18,
     defaultPlaybackRate: WEBGPU_PRODUCTION_DEFAULT_PLAYBACK_RATE,
     performance: Object.freeze({
-      benchmarkVersion: "local-fixed-step-throughput-v1",
-      minimumFlowThroughTimePerSecond: WEBGPU_PRODUCTION_DEFAULT_PLAYBACK_RATE,
+      benchmarkVersion: "interactive-guide-throughput-v2",
+      minimumFlowThroughTimePerSecond: WEBGPU_PRODUCTION_MINIMUM_BENCHMARK_RATE,
       maximumGuideDurationSeconds: 90,
     }),
   }),

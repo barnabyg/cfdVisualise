@@ -32,7 +32,9 @@ class BidiSession {
       const waiter = this.pending.get(message.id);
       if (waiter === undefined) return;
       this.pending.delete(message.id);
-      if (message.type === "error") waiter.reject(new Error(JSON.stringify(message)));
+      if (message.type === "error") {
+        waiter.reject(new Error(`${waiter.method}: ${JSON.stringify(message)}`));
+      }
       else waiter.resolve(message);
     });
   }
@@ -40,7 +42,7 @@ class BidiSession {
   command(method, params = {}) {
     return new Promise((resolvePromise, reject) => {
       const id = ++this.nextCommandId;
-      this.pending.set(id, { resolve: resolvePromise, reject });
+      this.pending.set(id, { resolve: resolvePromise, reject, method });
       this.socket.send(JSON.stringify({ id, method, params }));
     });
   }
@@ -62,6 +64,8 @@ class BidiSession {
     if (this.socket.readyState !== WebSocket.OPEN) return;
     try {
       await this.command("session.end");
+    } catch {
+      // Firefox can discard a failed browsing context before the BiDi session ends.
     } finally {
       this.socket.close();
     }
@@ -70,7 +74,6 @@ class BidiSession {
 
 const APP_PORT = 4175;
 const APP_URL = `http://127.0.0.1:${APP_PORT}/`;
-const WEBGPU_TIER_ID = "webgpu-balanced-d18";
 const WEBGPU_EVIDENCE_IDENTITY =
   "webgpu-reference / webgpu-balanced-d18 / ticket-08";
 
@@ -106,8 +109,12 @@ try {
   const websocketBase = await waitForWebDriverBidi(firefox, () => firefoxOutput);
   session = await BidiSession.connect(`${websocketBase}/session`);
   await session.command("session.new", { capabilities: { alwaysMatch: {} } });
-  const created = await session.command("browsingContext.create", { type: "tab" });
-  const context = created.result.context;
+  const tree = await session.command("browsingContext.getTree");
+  let context = tree.result.contexts[0]?.context;
+  if (typeof context !== "string") {
+    const created = await session.command("browsingContext.create", { type: "tab" });
+    context = created.result.context;
+  }
   await session.command("browsingContext.navigate", {
     context,
     url: APP_URL,
@@ -115,7 +122,7 @@ try {
   });
   await session.evaluate(
     context,
-    `localStorage.setItem("cfd-visualise-quality-tier", ${JSON.stringify(WEBGPU_TIER_ID)}); true`,
+    `localStorage.removeItem("cfd-visualise-quality-tier"); true`,
   );
   await session.command("browsingContext.reload", { context, wait: "complete" });
 
@@ -125,35 +132,89 @@ try {
     }
     return text.includes(WEBGPU_EVIDENCE_IDENTITY);
   });
-  if (!readyText.includes("Step 0.05 D/U")) {
-    throw new Error("Firefox started WebGPU, but the step action is missing.");
-  }
-  const stepped = await session.evaluate(
+  const guideStartedAt = performance.now();
+  const started = await session.evaluate(
     context,
     `(() => {
       const button = [...document.querySelectorAll("button")]
-        .find((candidate) => (candidate.textContent ?? "").toLowerCase().includes("step 0.05 d/u"));
+        .find((candidate) => /start guided experiment/i.test(candidate.textContent ?? ""));
       button?.click();
       return button !== undefined;
     })()`,
   );
-  if (stepped !== true) throw new Error("Could not advance the WebGPU experiment in Firefox.");
+  if (started !== true) throw new Error("Could not start the guided experiment in Firefox.");
+
+  await waitForPageState(
+    session,
+    context,
+    (text) => {
+      if (text.includes("Result unavailable")) {
+        throw new Error(`Firefox lost the production WebGPU tier during the baseline.\n${text.slice(-4_000)}`);
+      }
+      return text.includes("Baseline measured");
+    },
+    45_000,
+  );
+
+  const predicted = await session.evaluate(
+    context,
+    `(() => {
+      const radio = [...document.querySelectorAll('input[type="radio"]')]
+        .find((candidate) => /become unsteady/i.test(candidate.closest("label")?.textContent ?? ""));
+      radio?.click();
+      return radio !== undefined;
+    })()`,
+  );
+  if (predicted !== true) throw new Error("Could not select the guide prediction in Firefox.");
   await waitForScriptValue(
     session,
     context,
     `(() => {
       if (document.body.innerText.includes("Result unavailable")) {
-        throw new Error("Firefox lost the production WebGPU tier while advancing.");
+        throw new Error("Firefox lost the production WebGPU tier before committing the prediction.");
       }
-      const term = [...document.querySelectorAll("dt")]
-        .find((candidate) => /flow-through time/i.test(candidate.textContent ?? ""));
-      return term?.nextElementSibling?.textContent?.trim() !== "0.00 D/U";
+      const button = [...document.querySelectorAll("button")]
+        .find((candidate) => /commit prediction/i.test(candidate.textContent ?? ""));
+      return button !== undefined && !button.disabled;
     })()`,
-    20_000,
   );
+
+  const committed = await session.evaluate(
+    context,
+    `(() => {
+      const button = [...document.querySelectorAll("button")]
+        .find((candidate) => /commit prediction/i.test(candidate.textContent ?? "") && !candidate.disabled);
+      button?.click();
+      return button !== undefined;
+    })()`,
+  );
+  if (committed !== true) throw new Error("Could not commit the guide prediction in Firefox.");
+
+  const elapsedBeforeObservation = performance.now() - guideStartedAt;
+  const remainingGuideTime = Math.max(1_000, 90_000 - elapsedBeforeObservation);
+  await waitForPageState(
+    session,
+    context,
+    (text) => {
+      if (text.includes("Result unavailable")) {
+        throw new Error(`Firefox lost the production WebGPU tier while observing the wake.\n${text.slice(-4_000)}`);
+      }
+      return text.includes("Prediction compared");
+    },
+    remainingGuideTime,
+  );
+  const durationSeconds = (performance.now() - guideStartedAt) / 1_000;
+  if (durationSeconds > 90) {
+    throw new Error(`Firefox WebGPU guide took ${durationSeconds.toFixed(2)}s; maximum is 90s.`);
+  }
   process.stdout.write(
-    "Firefox compiled the production WebGPU tier and advanced a real experiment step.\n",
+    `Firefox automatically selected the production WebGPU tier and completed the real guide in ${durationSeconds.toFixed(2)}s.\n`,
   );
+} catch (error) {
+  if (firefoxOutput.trim() !== "") {
+    process.stderr.write(`Firefox output:\n${firefoxOutput}\n`);
+  }
+  throw error;
 } finally {
   await session?.close();
   firefox.kill();

@@ -38,7 +38,6 @@ describe("bundled validated quality tiers", () => {
         cellsPerDiameter: tier.identity.cellsPerDiameter,
         defaultPlaybackRate: tier.identity.defaultPlaybackRate,
         performance: {
-          benchmarkVersion: "local-fixed-step-throughput-v1",
           maximumGuideDurationSeconds: 90,
         },
       });
@@ -60,6 +59,11 @@ describe("bundled validated quality tiers", () => {
           .map(({ reynoldsNumber }) => reynoldsNumber),
       ).toEqual([5, 20, 40, 45, 50, 100, 150]);
     }
+    expect(BUNDLED_QUALITY_TIERS[1]?.manifest.suite.qualityTier?.performance).toEqual({
+      benchmarkVersion: "interactive-guide-throughput-v2",
+      maximumGuideDurationSeconds: 90,
+      minimumFlowThroughTimePerSecond: 1.2,
+    });
   });
 
   it("selects only benchmarked bundled identities and rejects invented manual tiers", async () => {
@@ -92,7 +96,7 @@ describe("bundled validated quality tiers", () => {
     const selected = await selectBenchmarkTier({
       benchmark: async ({ id }) => ({
         status: "supported",
-        flowThroughTimePerSecond: id === "webgpu-balanced-d18" ? 1.9 : 1.3,
+        flowThroughTimePerSecond: id === "webgpu-balanced-d18" ? 1.1 : 1.3,
       }),
     });
 
