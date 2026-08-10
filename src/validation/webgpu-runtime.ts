@@ -1370,6 +1370,7 @@ fn advance_tracers(@builtin(global_invocation_id) invocation: vec3<u32>) {
   let velocity = tracer_macro(cell * 9u).yz;
   let lattice_steps = render_flow_increment() * cylinder_diameter() / lattice_speed();
   var next = state.xy + velocity * lattice_steps;
+  var previous = state.xy;
   let next_x = u32(clamp(round(next.x), 0.0, f32(width() - 1u)));
   let next_y = u32(clamp(round(next.y), 0.0, f32(height() - 1u)));
   let next_cell = next_y * width() + next_x;
@@ -1379,8 +1380,9 @@ fn advance_tracers(@builtin(global_invocation_id) invocation: vec3<u32>) {
     tracer_solid[next_cell] == 1u
   ) {
     next = vec2<f32>(1.0, 1.0 + f32((tracer * 37u) % (height() - 2u)));
+    previous = next;
   }
-  tracer_states[tracer] = vec4<f32>(next, state.xy);
+  tracer_states[tracer] = vec4<f32>(next, previous);
 }
 
 fn pack_rgba(red: f32, green: f32, blue: f32) -> u32 {
