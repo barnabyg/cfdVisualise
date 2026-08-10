@@ -1,0 +1,70 @@
+name: Release verification
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-verification-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify-release:
+    name: Scientific validation and default-guide performance
+    runs-on: windows-latest
+    timeout-minutes: 360
+    steps:
+      - name: Check out the exact release revision
+        uses: actions/checkout@v7
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Install the release browser matrix
+        run: npm exec -- playwright install chromium firefox webkit
+
+      - name: Regenerate and verify exact scientific evidence
+        run: npm run verify:evidence
+
+      - name: Run fast schema, negative, build, and production-browser checks
+        run: npm run verify
+
+      - name: Enforce per-tier 90-second default-guide gates
+        run: npm run test:guide:release
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-failure-diagnostics-${{ github.sha }}
+          if-no-files-found: ignore
+          path: |
+            src/engine/cpu-production-manifest.json
+            src/validation/webgpu-backend-manifest.json
+            validation-evidence-lock.json
+            release-evidence/release-gate-report.json
+            playwright-report/
+            test-results/
+
+      - name: Publish exact passing release evidence
+        if: success()
+        uses: actions/upload-artifact@v6
+        with:
+          name: validated-quality-tier-evidence-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            src/engine/cpu-production-manifest.json
+            src/validation/webgpu-backend-manifest.json
+            validation-evidence-lock.json
+            release-evidence/release-gate-report.json

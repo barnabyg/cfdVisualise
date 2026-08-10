@@ -1,4 +1,7 @@
-import { createWebGpuValidationBackend } from "../validation/webgpu-backend.js";
+import {
+  createWebGpuValidationBackend,
+  type WebGpuUnavailableResult,
+} from "../validation/webgpu-backend.js";
 import type { WebGpuDeviceHandle } from "../validation/webgpu-api.js";
 import { WEBGPU_PRODUCTION_TIER } from "./quality-tiers.js";
 import {
@@ -155,6 +158,18 @@ async function initialise(
   await renderFrame(0);
   emit({ type: "ready", tier: WEBGPU_PRODUCTION_TIER });
   emitSummary();
+  void reportDeviceLoss(backend.deviceLost, backend.device, command.sessionId);
+}
+
+async function reportDeviceLoss(
+  deviceLost: Promise<WebGpuUnavailableResult>,
+  activeDevice: WebGpuDeviceHandle,
+  activeSessionId: string,
+): Promise<void> {
+  const unavailable = await deviceLost;
+  if (device !== activeDevice || sessionId !== activeSessionId) return;
+  pause();
+  emitUnavailable(unavailable.message);
 }
 
 function scheduleAdvance(): void {

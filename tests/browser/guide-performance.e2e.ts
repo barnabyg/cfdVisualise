@@ -21,7 +21,15 @@ test("the real CPU guide completes across the browser matrix", async ({ page }, 
   console.info(
     `Production CPU guide duration (${testInfo.project.name}): ${durationSeconds.toFixed(2)}s`,
   );
-  if (testInfo.project.name === "chromium") {
-    expect(durationSeconds).toBeLessThanOrEqual(90);
-  }
+  await testInfo.attach("guide-performance", {
+    body: `${JSON.stringify({
+      schemaVersion: "1",
+      backendId: "cpu-reference",
+      qualityTier: "cpu-balanced-d18",
+      browser: testInfo.project.name,
+      guideDurationSeconds: durationSeconds,
+    })}\n`,
+    contentType: "application/json",
+  });
+  expect(durationSeconds).toBeLessThanOrEqual(90);
 });

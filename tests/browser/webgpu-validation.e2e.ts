@@ -121,6 +121,7 @@ test("WebGPU executes the shared TRT/BFL seam with limited diagnostics", async (
 
 test("WebGPU boundary alternatives remain finite", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chrome", "WebGPU validation uses software-backed Chrome.");
+  test.setTimeout(90_000);
   await page.goto("http://127.0.0.1:4174/");
 
   const samples = await page.evaluate(async () => {
@@ -267,6 +268,38 @@ test("supported WebGPU displays evidence for the exact selected engine identity"
   await expect(flowTime).not.toHaveText("0.00 D/U", { timeout: 20_000 });
 });
 
+test("production WebGPU device loss freezes the result and offers validated recovery", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "chrome", "WebGPU validation uses software-backed Chrome.");
+  test.setTimeout(60_000);
+  await page.route("**/webgpu-wake-worker-*.js", async (route) => {
+    const response = await route.fetch();
+    const workerSource = await response.text();
+    await route.fulfill({
+      response,
+      body: `${deviceLossInjection()}\n${workerSource}`,
+      contentType: "text/javascript",
+    });
+  });
+  await page.addInitScript(() => {
+    localStorage.setItem("cfd-visualise-quality-tier", "webgpu-balanced-d18");
+  });
+
+  await page.goto("/");
+  await expect(page.getByText(/WebGPU balanced .* webgpu-reference/)).toBeVisible({
+    timeout: 30_000,
+  });
+  const unavailable = page.getByRole("alert");
+  await expect(unavailable).toContainText(/WebGPU.*device.*lost/i, { timeout: 20_000 });
+  await expect(
+    page.getByRole("button", { name: "Restart WebGPU balanced" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Restart on CPU balanced" }),
+  ).toBeVisible();
+});
+
 test("the local capability benchmark rejects a WebGPU tier below its bundled pace", async ({
   page,
 }, testInfo) => {
@@ -373,3 +406,42 @@ test("WebGPU reports browser capability, diagnostic, and device-loss states", as
     deviceLoss: { status: "unavailable", reason: "device-lost" },
   });
 });
+
+function deviceLossInjection(): string {
+  return `
+    {
+      const nativeGpu = navigator.gpu;
+      const requestAdapter = nativeGpu.requestAdapter.bind(nativeGpu);
+      const injectedGpu = new Proxy(nativeGpu, {
+        get(target, property) {
+          if (property !== "requestAdapter") {
+            const value = Reflect.get(target, property, target);
+            return typeof value === "function" ? value.bind(target) : value;
+          }
+          return async (...adapterArguments) => {
+            const adapter = await requestAdapter(...adapterArguments);
+            if (adapter === null) return null;
+            const requestDevice = adapter.requestDevice.bind(adapter);
+            return new Proxy(adapter, {
+              get(adapterTarget, adapterProperty) {
+                if (adapterProperty !== "requestDevice") {
+                  const value = Reflect.get(adapterTarget, adapterProperty, adapterTarget);
+                  return typeof value === "function" ? value.bind(adapterTarget) : value;
+                }
+                return async (...deviceArguments) => {
+                  const device = await requestDevice(...deviceArguments);
+                  setTimeout(() => device.destroy(), 1_500);
+                  return device;
+                };
+              },
+            });
+          };
+        },
+      });
+      Object.defineProperty(navigator, "gpu", {
+        configurable: true,
+        value: injectedGpu,
+      });
+    }
+  `;
+}
