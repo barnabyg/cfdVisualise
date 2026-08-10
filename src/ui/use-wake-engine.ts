@@ -2,19 +2,31 @@ import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 
 import {
   DEFAULT_PHYSICAL_SCENARIO,
+  reynoldsNumber,
   type PhysicalScenario,
 } from "../engine/physical-scenario.js";
+import { WebGpuWakeSimulation } from "../engine/webgpu-wake-simulation.js";
 import {
   ENGINE_PROTOCOL_VERSION,
   createEngineEventGate,
   type CanvasViewport,
-  type CpuQualityTierIdentity,
+  type QualityTierIdentity,
   type EngineBaseline,
   type EngineCommand,
   type EngineCommandPayload,
   type EngineEvent,
   type EngineSummary,
 } from "../engine/protocol.js";
+import {
+  BUNDLED_QUALITY_TIERS,
+  changeManualTier,
+  selectBenchmarkTier,
+  selectManualTier,
+  type TierBenchmarkResult,
+} from "../engine/quality-tiers.js";
+import { CPU_PRODUCTION_TIER } from "../engine/cpu-tier.js";
+import { createWebGpuValidationBackend } from "../validation/webgpu-backend.js";
+import { CPU_PRODUCTION_VALIDATION_SUITE } from "../validation/cpu-production-reference.js";
 
 interface TransferableCanvasElement extends HTMLCanvasElement {
   transferControlToOffscreen(): OffscreenCanvas;
@@ -29,6 +41,8 @@ export interface WakeWorkerPort {
 
 export interface UseWakeEngineOptions {
   readonly workerFactory?: () => WakeWorkerPort;
+  readonly tierWorkerFactory?: (identity: QualityTierIdentity) => WakeWorkerPort;
+  readonly benchmark?: (identity: QualityTierIdentity) => Promise<TierBenchmarkResult>;
   readonly sessionIdFactory?: () => string;
   readonly reducedMotion?: boolean;
 }
@@ -36,13 +50,17 @@ export interface UseWakeEngineOptions {
 export interface WakeEngineFacade {
   readonly canvasRef: (canvas: HTMLCanvasElement | null) => void;
   readonly summary: EngineSummary;
-  readonly tier?: CpuQualityTierIdentity;
+  readonly tier?: QualityTierIdentity;
+  readonly availableTiers: readonly QualityTierIdentity[];
   readonly unavailableReason?: string;
+  readonly restartChoices?: readonly ("same-tier" | "lower-tier")[];
   readonly capturedStill?: EngineBaseline;
   play(): void;
   pause(): void;
   step(): void;
   restart(): void;
+  restartTier(): void;
+  changeTier(tierId: string): void;
   captureStill(): void;
   resetGuide(): void;
   setScenario(scenario: PhysicalScenario): void;
@@ -67,9 +85,13 @@ export function useWakeEngine(options: UseWakeEngineOptions = {}): WakeEngineFac
   const canvasElementRef = useRef<HTMLCanvasElement | null>(null);
   const framePresenterRef = useRef<WorkerFramePresenter>();
   const sessionIdRef = useRef("");
+  const scenarioRef = useRef<PhysicalScenario>(DEFAULT_PHYSICAL_SCENARIO);
   const [summary, setSummary] = useState(INITIAL_SUMMARY);
-  const [tier, setTier] = useState<CpuQualityTierIdentity>();
+  const [tier, setTier] = useState<QualityTierIdentity>();
+  const [selectedTier, setSelectedTier] = useState<QualityTierIdentity>();
   const [unavailableReason, setUnavailableReason] = useState<string>();
+  const [restartChoices, setRestartChoices] = useState<readonly ("same-tier" | "lower-tier")[]>();
+  const [engineGeneration, setEngineGeneration] = useState(0);
   const [capturedStill, setCapturedStill] = useState<EngineBaseline>();
 
   const canvasRef = useCallback((canvas: HTMLCanvasElement | null) => {
@@ -77,7 +99,36 @@ export function useWakeEngine(options: UseWakeEngineOptions = {}): WakeEngineFac
   }, []);
 
   useEffect(() => {
-    const worker = (options.workerFactory ?? createBrowserWakeWorker)();
+    if (options.workerFactory !== undefined) return undefined;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const storedTierId = globalThis.localStorage?.getItem("cfd-visualise-quality-tier");
+        const selected = storedTierId === null || storedTierId === undefined
+          ? await selectBenchmarkTier({
+              benchmark: options.benchmark ?? benchmarkBrowserQualityTier,
+            })
+          : selectManualTier(storedTierId);
+        if (!cancelled) setSelectedTier(selected.identity);
+      } catch (error) {
+        if (!cancelled) {
+          setUnavailableReason(
+            error instanceof Error
+              ? error.message
+              : "No validated quality tier is supported on this device.",
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (options.workerFactory === undefined && selectedTier === undefined) return undefined;
+    const worker = options.workerFactory?.() ??
+      (options.tierWorkerFactory ?? createBrowserWakeWorker)(selectedTier!);
     const sessionId = (options.sessionIdFactory ?? createSessionId)();
     const canvas = canvasElementRef.current;
     if (canvas === null) throw new Error("The wake canvas was not mounted.");
@@ -89,15 +140,19 @@ export function useWakeEngine(options: UseWakeEngineOptions = {}): WakeEngineFac
       if (!eventGate.accept(data)) return;
       if (data.type === "ready") {
         setTier(data.tier);
+        setRestartChoices(undefined);
       } else if (data.type === "summary") {
+        scenarioRef.current = data.summary.scenario;
         setSummary(data.summary);
         setUnavailableReason(undefined);
+        setRestartChoices(undefined);
       } else if (data.type === "still") {
         setCapturedStill({ image: data.image, summary: data.summary });
       } else if (data.type === "frame") {
         framePresenterRef.current?.present(data);
       } else {
         setUnavailableReason(data.reason);
+        setRestartChoices(data.restartChoices);
       }
     };
     worker.onerror = (event) => {
@@ -108,14 +163,17 @@ export function useWakeEngine(options: UseWakeEngineOptions = {}): WakeEngineFac
       options.reducedMotion ??
       globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ??
       false;
-    if (typeof transferableCanvas.transferControlToOffscreen === "function") {
+    if (
+      options.workerFactory !== undefined &&
+      typeof transferableCanvas.transferControlToOffscreen === "function"
+    ) {
       const offscreen = transferableCanvas.transferControlToOffscreen();
       worker.postMessage(
         envelope(sessionId, {
           type: "initialise",
           renderTarget: { kind: "offscreen-canvas", canvas: offscreen },
           viewport,
-          scenario: DEFAULT_PHYSICAL_SCENARIO,
+          scenario: scenarioRef.current,
           reducedMotion,
         }),
         [offscreen],
@@ -127,7 +185,7 @@ export function useWakeEngine(options: UseWakeEngineOptions = {}): WakeEngineFac
           type: "initialise",
           renderTarget: { kind: "frame-events" },
           viewport,
-          scenario: DEFAULT_PHYSICAL_SCENARIO,
+          scenario: scenarioRef.current,
           reducedMotion,
         }),
       );
@@ -155,7 +213,7 @@ export function useWakeEngine(options: UseWakeEngineOptions = {}): WakeEngineFac
       globalThis.removeEventListener("pagehide", dispose);
       dispose();
     };
-  }, []);
+  }, [selectedTier?.id, engineGeneration]);
 
   const send = useCallback((payload: EngineCommandPayload) => {
     const worker = workerRef.current;
@@ -166,21 +224,50 @@ export function useWakeEngine(options: UseWakeEngineOptions = {}): WakeEngineFac
   return {
     canvasRef,
     summary,
+    availableTiers: BUNDLED_QUALITY_TIERS.map(({ identity }) => identity),
     ...(tier === undefined ? {} : { tier }),
     ...(unavailableReason === undefined ? {} : { unavailableReason }),
+    ...(restartChoices === undefined ? {} : { restartChoices }),
     ...(capturedStill === undefined ? {} : { capturedStill }),
     play: () => send({ type: "play" }),
     pause: () => send({ type: "pause" }),
     step: () => send({ type: "step" }),
     restart: () => send({ type: "restart" }),
+    restartTier: () => {
+      setUnavailableReason(undefined);
+      setRestartChoices(undefined);
+      setEngineGeneration((generation) => generation + 1);
+    },
+    changeTier: (tierId) => {
+      const selected = changeManualTier(tierId, (identity) => {
+        setTier(undefined);
+        setUnavailableReason(undefined);
+        setRestartChoices(undefined);
+        setCapturedStill(undefined);
+        const scenario = scenarioRef.current;
+        const activeReynoldsNumber = reynoldsNumber(scenario);
+        setSummary({
+          ...INITIAL_SUMMARY,
+          scenario,
+          reynoldsNumber: activeReynoldsNumber,
+          targetReynoldsNumber: activeReynoldsNumber,
+        });
+        setSelectedTier(identity);
+      });
+      globalThis.localStorage?.setItem("cfd-visualise-quality-tier", selected.identity.id);
+    },
     captureStill: () => send({ type: "capture-still" }),
     resetGuide: () => {
       setCapturedStill(undefined);
+      scenarioRef.current = DEFAULT_PHYSICAL_SCENARIO;
       send({ type: "set-scenario", scenario: DEFAULT_PHYSICAL_SCENARIO });
       send({ type: "restart" });
       send({ type: "play" });
     },
-    setScenario: (scenario) => send({ type: "set-scenario", scenario }),
+    setScenario: (scenario) => {
+      scenarioRef.current = scenario;
+      send({ type: "set-scenario", scenario });
+    },
     setPlaybackRate: (targetFlowThroughTimePerSecond) =>
       send({ type: "set-playback-rate", targetFlowThroughTimePerSecond }),
     setTracersEnabled: (enabled) => send({ type: "set-tracers-enabled", enabled }),
@@ -206,10 +293,103 @@ function measureViewport(canvas: HTMLCanvasElement): CanvasViewport {
   };
 }
 
-function createBrowserWakeWorker(): WakeWorkerPort {
+function createBrowserWakeWorker(identity: QualityTierIdentity): WakeWorkerPort {
+  if (identity.backendId === "webgpu-reference") {
+    return new Worker(new URL("../engine/webgpu-wake-worker.js", import.meta.url), {
+      type: "module",
+      name: "cfd-visualise-webgpu-reference-wake",
+    });
+  }
   return new Worker(new URL("../engine/cpu-wake-worker.js", import.meta.url), {
     type: "module",
-    name: "cfd-visualise-cpu-wake",
+    name: `cfd-visualise-${identity.backendId}-wake`,
+  });
+}
+
+export async function benchmarkBrowserQualityTier(
+  identity: QualityTierIdentity,
+): Promise<TierBenchmarkResult> {
+  if (identity.backendId === CPU_PRODUCTION_TIER.backendId) {
+    const definition = CPU_PRODUCTION_VALIDATION_SUITE.cases[0];
+    if (definition === undefined) {
+      return { status: "unsupported", reason: "No bundled CPU benchmark case." };
+    }
+    try {
+      const flowThroughTimePerSecond = await benchmarkCpuWorker(definition);
+      return {
+        status: "supported",
+        flowThroughTimePerSecond,
+      };
+    } catch (error) {
+      return {
+        status: "unsupported",
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+  if (identity.backendId !== "webgpu-reference") {
+    return { status: "unsupported", reason: "Unknown backend identity." };
+  }
+  const backend = await createWebGpuValidationBackend();
+  if (backend.status !== "ready") {
+    return { status: "unsupported", reason: backend.message };
+  }
+  let simulation: WebGpuWakeSimulation | undefined;
+  try {
+    simulation = await WebGpuWakeSimulation.create(
+      backend.device,
+      DEFAULT_PHYSICAL_SCENARIO,
+    );
+    for (let index = 0; index < 2; index += 1) {
+      await simulation.advanceBy(0.4);
+    }
+    await simulation.renderFrame(0.8, true);
+
+    const advanceCount = 4;
+    const started = performance.now();
+    for (let index = 0; index < advanceCount; index += 1) {
+      await simulation.advanceBy(0.4);
+      if ((index + 1) % 2 === 0) await simulation.renderFrame(0.8, true);
+    }
+    const elapsedSeconds = Math.max((performance.now() - started) / 1000, Number.EPSILON);
+    return {
+      status: "supported",
+      flowThroughTimePerSecond: (advanceCount * 0.4) / elapsedSeconds,
+    };
+  } catch (error) {
+    return {
+      status: "unsupported",
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    try {
+      await simulation?.dispose();
+    } finally {
+      backend.device.destroy();
+    }
+  }
+}
+
+function benchmarkCpuWorker(
+  definition: (typeof CPU_PRODUCTION_VALIDATION_SUITE.cases)[number],
+): Promise<number> {
+  const worker = new Worker(new URL("../engine/cpu-capability-worker.js", import.meta.url), {
+    type: "module",
+    name: "cfd-visualise-cpu-capability",
+  });
+  return new Promise((resolvePromise, reject) => {
+    worker.onmessage = ({ data }: MessageEvent<
+      { readonly flowThroughTimePerSecond: number } | { readonly error: string }
+    >) => {
+      worker.terminate();
+      if ("error" in data) reject(new Error(data.error));
+      else resolvePromise(data.flowThroughTimePerSecond);
+    };
+    worker.onerror = (event) => {
+      worker.terminate();
+      reject(new Error(event.message || "CPU capability benchmark failed."));
+    };
+    worker.postMessage({ definition });
   });
 }
 

@@ -64,6 +64,16 @@ export function MethodAndValidationSurface({
       h("dd", null, `${model.backendId} / ${model.qualityTier} / ${model.buildId}`),
       h("dt", null, "Validation suite"),
       h("dd", null, model.suiteId),
+      ...(model.qualityConfiguration === undefined
+        ? []
+        : [
+            h("dt", null, "Validated quality configuration"),
+            h(
+              "dd",
+              null,
+              `${model.qualityConfiguration.cellsPerDiameter} cells/D · ${model.qualityConfiguration.defaultPlaybackRate}× default · ${model.qualityConfiguration.benchmarkVersion} requires ${model.qualityConfiguration.minimumFlowThroughTimePerSecond} D/U/s and a guide within ${model.qualityConfiguration.maximumGuideDurationSeconds}s`,
+            ),
+          ]),
     ),
     h("h3", null, "Reference-case evidence"),
     h(

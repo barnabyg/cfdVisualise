@@ -41,6 +41,9 @@ export async function runValidation(
       ...(suite.evidenceScope === undefined
         ? {}
         : { evidenceScope: suite.evidenceScope }),
+      ...(suite.qualityTier === undefined
+        ? {}
+        : { qualityTier: suite.qualityTier }),
     },
     backend: backend.identity,
     status:

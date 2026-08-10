@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1",
+  "inputs": {
+    "sha256": "87bf3fc80ee43a7d8f2e65a2f9fc3159720af71ca99a8cf54ca070cc7112a342"
+  },
+  "manifests": {
+    "cpu": {
+      "path": "src/engine/cpu-production-manifest.json",
+      "sha256": "6fb1c60b5fedccd121582fb7145d185de5f3309d770b5adb080dac83962cc124"
+    },
+    "webgpu": {
+      "path": "src/validation/webgpu-backend-manifest.json",
+      "sha256": "87ccff7d6d235638ce9d92159cc272340854d46a42151907658bf58410b86efd"
+    }
+  }
+}

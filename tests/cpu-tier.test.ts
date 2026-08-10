@@ -37,7 +37,9 @@ describe("bundled CPU production tier", () => {
           .filter(({ status }) => status === "pass")
           .map(({ kind }) => kind),
       ),
-    ).toEqual(new Set(["grid", "cylinder-placement", "domain", "boundary"]));
+    ).toEqual(
+      new Set(["grid", "cylinder-placement", "domain", "boundary", "backend"]),
+    );
     expect(CPU_PRODUCTION_CANONICAL_CASES.map(({ reynoldsNumber }) => reynoldsNumber)).toEqual([
       5, 20, 40, 45, 50, 100, 150,
     ]);

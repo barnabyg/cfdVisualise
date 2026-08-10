@@ -181,6 +181,18 @@ export interface ValidationSuite {
   readonly cases: readonly ValidationCaseDefinition[];
   readonly reconciliations: readonly ReconciliationDefinition[];
   readonly evidenceScope?: ValidationEvidenceScope;
+  readonly qualityTier?: QualityTierEvidence;
+}
+
+export interface QualityTierEvidence {
+  readonly id: string;
+  readonly cellsPerDiameter: number;
+  readonly defaultPlaybackRate: number;
+  readonly performance: {
+    readonly benchmarkVersion: string;
+    readonly minimumFlowThroughTimePerSecond: number;
+    readonly maximumGuideDurationSeconds: number;
+  };
 }
 
 export interface BackendIdentity {
@@ -326,6 +338,7 @@ export interface ValidationManifest {
     readonly schemaVersion: ContractSchemaVersion;
     readonly metricVersions: Readonly<Record<string, string>>;
     readonly evidenceScope?: ValidationEvidenceScope;
+    readonly qualityTier?: QualityTierEvidence;
   };
   readonly backend: BackendIdentity;
   readonly status: "pass" | "fail";

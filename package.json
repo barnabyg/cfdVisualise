@@ -9,11 +9,20 @@
     "preview": "vite preview",
     "validate:cpu-production": "vite-node scripts/generate-cpu-production-manifest.ts",
     "validate:webgpu-backend": "node scripts/generate-webgpu-backend-manifest.mjs",
+    "validate:quality-tiers": "npm run validate:cpu-production && npm run validate:webgpu-backend && node scripts/check-validation-evidence.mjs --update",
+    "check:evidence": "node scripts/check-validation-evidence.mjs",
     "test:browser": "node scripts/run-browser-tests.mjs",
+    "test:browser:smoke": "node scripts/run-browser-tests.mjs --grep-invert=\"real CPU guide\"",
+    "test:guide:cpu": "node scripts/run-browser-tests.mjs tests/browser/guide-performance.e2e.ts --project=chromium",
+    "test:guide:matrix": "node scripts/run-browser-tests.mjs tests/browser/guide-performance.e2e.ts",
+    "test:firefox-webgpu": "node scripts/run-firefox-webgpu-test.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "verify": "npm run typecheck && npm test && npm run build && npm run test:browser"
+    "verify": "npm run typecheck && npm test && npm run check:evidence && npm run build && npm run test:browser:smoke",
+    "verify:engine": "npm run verify && npm run test:guide:cpu && npm run test:firefox-webgpu",
+    "verify:evidence": "npm run validate:quality-tiers && git diff --exit-code HEAD -- src/engine/cpu-production-manifest.json src/validation/webgpu-backend-manifest.json validation-evidence-lock.json",
+    "verify:release": "npm run verify:evidence && npm run verify && npm run test:guide:matrix && npm run test:firefox-webgpu"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

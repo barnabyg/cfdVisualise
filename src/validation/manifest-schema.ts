@@ -100,6 +100,22 @@ function validateSuite(value: unknown): void {
   if (suite.evidenceScope !== undefined) {
     validateEvidenceScope(suite.evidenceScope, "Validation suite evidence scope");
   }
+  if (suite.qualityTier !== undefined) {
+    const tier = record(suite.qualityTier, "Validation quality tier");
+    text(tier.id, "Validation quality tier id");
+    positive(tier.cellsPerDiameter, "Validation quality tier cells per diameter");
+    positive(tier.defaultPlaybackRate, "Validation quality tier default playback rate");
+    const performance = record(tier.performance, "Validation quality tier performance");
+    text(performance.benchmarkVersion, "Quality tier benchmark version");
+    positive(
+      performance.minimumFlowThroughTimePerSecond,
+      "Quality tier minimum measured advancement pace",
+    );
+    positive(
+      performance.maximumGuideDurationSeconds,
+      "Quality tier maximum guide duration",
+    );
+  }
 }
 
 function validateBackend(value: unknown): void {

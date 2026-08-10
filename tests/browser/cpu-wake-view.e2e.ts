@@ -8,6 +8,7 @@ test("production CPU Worker renders, resizes, rejects stale events, and disposes
     auditedCommands.push(type);
   });
   await page.addInitScript(() => {
+    localStorage.setItem("cfd-visualise-quality-tier", "cpu-balanced-d18");
     const NativeWorker = globalThis.Worker;
     class AuditedWorker extends NativeWorker {
       public override postMessage(
@@ -48,15 +49,29 @@ test("production CPU Worker renders, resizes, rejects stale events, and disposes
 
   const wake = page.getByRole("img", { name: /full-domain wake view/i });
   await expect(wake).toBeVisible();
-  await expect(page.getByText(/CPU balanced/)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/CPU balanced · cpu-reference/)).toBeVisible({
+    timeout: 20_000,
+  });
+  const validation = page.getByRole("region", { name: "Method and validation" });
+  await expect(validation).toHaveAttribute("data-evidence-state", "passing");
+  await expect(
+    validation.getByText("cpu-reference / cpu-balanced-d18 / ticket-06"),
+  ).toBeVisible();
   await expect(page.getByRole("checkbox", { name: /passive tracers/i })).not.toBeChecked();
   await expect(page.getByText("paused", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Play" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Pause" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: /step 0\.05 D\/U/i })).toBeEnabled();
 
   const desktopBounds = await wake.evaluate((canvas) => {
     const bounds = canvas.getBoundingClientRect();
     return { width: bounds.width, height: bounds.height, bottom: bounds.bottom };
   });
-  expect(desktopBounds.width / desktopBounds.height).toBeCloseTo(2.5, 1);
+  const validatedGridAspectRatio = (21 * 18 + 1) / (17 * 18 + 1);
+  expect(desktopBounds.width / desktopBounds.height).toBeCloseTo(
+    validatedGridAspectRatio,
+    2,
+  );
   expect(desktopBounds.bottom).toBeLessThanOrEqual(900);
 
   const before = await wake.evaluate((canvas) => (canvas as HTMLCanvasElement).width);
@@ -66,6 +81,9 @@ test("production CPU Worker renders, resizes, rejects stale events, and disposes
   await page.getByRole("button", { name: /start guided experiment/i }).focus();
   await page.keyboard.press("Enter");
   await expect(page.getByText("playing", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Play" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Pause" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: /step 0\.05 D\/U/i })).toBeDisabled();
 
   const beforeStale = await page.getByText(/^[0-9]+\.[0-9]$/).first().textContent();
   await page.evaluate(() => {

@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 
 import {
   CPU_REFERENCE_BACKEND_IDENTITY,
@@ -36,6 +37,9 @@ const requestedCases = process.argv
   .find((argument) => argument.startsWith("--cases="))
   ?.slice("--cases=".length)
   .split(",");
+const runId =
+  process.argv.find((argument) => argument.startsWith("--run-id="))?.slice("--run-id=".length) ??
+  randomUUID();
 const intermediateDirectory = resolve("test-results/cpu-production-evidence");
 
 if (requestedComponent !== undefined) {
@@ -44,9 +48,10 @@ if (requestedComponent !== undefined) {
   await mkdir(intermediateDirectory, { recursive: true });
   const selectedSuite =
     requestedCases === undefined
-      ? suite
+      ? { ...suite, qualityTier: CPU_PRODUCTION_VALIDATION_SUITE.qualityTier }
       : {
           ...suite,
+          qualityTier: CPU_PRODUCTION_VALIDATION_SUITE.qualityTier,
           cases: suite.cases.filter(({ id }) => requestedCases.includes(id)),
           reconciliations: [],
         };
@@ -56,7 +61,8 @@ if (requestedComponent !== undefined) {
     serializeValidationManifest(manifest),
     "utf8",
   );
-  console.info(`Completed ${requestedComponent} CPU production evidence.`);
+  assertPassing(manifest, `${requestedComponent} CPU production evidence`);
+  console.info(`Completed passing ${requestedComponent} CPU production evidence.`);
 } else {
   await mkdir(intermediateDirectory, { recursive: true });
   await Promise.all(
@@ -72,6 +78,7 @@ if (requestedComponent !== undefined) {
   const manifest = mergeManifests(manifests);
   const output = resolve("src/engine/cpu-production-manifest.json");
   await writeFile(output, serializeValidationManifest(manifest), "utf8");
+  assertPassing(manifest, "CPU production evidence");
   console.info(`Wrote passing CPU production evidence to ${output}.`);
 }
 
@@ -85,14 +92,16 @@ async function validate(suite: ValidationSuite): Promise<ValidationManifest> {
     },
   };
   const manifest = await runValidation(suite, backend);
-  if (manifest.status !== "pass") {
-    const failures = [
-      ...manifest.cases.flatMap((result) => result.failures),
-      ...manifest.reconciliations.flatMap((result) => result.failures),
-    ];
-    throw new Error(`${suite.id} failed:\n${failures.join("\n")}`);
-  }
   return manifest;
+}
+
+function assertPassing(manifest: ValidationManifest, label: string): void {
+  if (manifest.status === "pass") return;
+  const failures = [
+    ...manifest.cases.flatMap((result) => result.failures),
+    ...manifest.reconciliations.flatMap((result) => result.failures),
+  ];
+  throw new Error(`${label} failed after its failing manifest was written:\n${failures.join("\n")}`);
 }
 
 function runComponent(component: Component): Promise<void> {
@@ -103,12 +112,13 @@ function runComponent(component: Component): Promise<void> {
         resolve("node_modules/vite-node/vite-node.mjs"),
         resolve("scripts/generate-cpu-production-manifest.ts"),
         `--component=${component}`,
+        `--run-id=${runId}`,
       ],
       { stdio: "inherit" },
     );
     child.once("error", reject);
     child.once("exit", (code) => {
-      if (code === 0) resolvePromise();
+      if (code === 0 || code === 1) resolvePromise();
       else reject(new Error(`${component} evidence process exited with code ${code}.`));
     });
   });
@@ -126,14 +136,15 @@ function mergeManifests(
       schemaVersion: "1",
       metricVersions: CPU_PRODUCTION_VALIDATION_SUITE.metricVersions,
       evidenceScope: CPU_PRODUCTION_VALIDATION_SUITE.evidenceScope,
+      qualityTier: CPU_PRODUCTION_VALIDATION_SUITE.qualityTier,
     },
     backend: CPU_REFERENCE_BACKEND_IDENTITY,
-    status: "pass",
+    status: manifests.every(({ status }) => status === "pass") ? "pass" : "fail",
     cases,
     reconciliations,
   });
 }
 
 function componentPath(component: Component): string {
-  return resolve(intermediateDirectory, `${component}.json`);
+  return resolve(intermediateDirectory, `${component}-${runId}.json`);
 }

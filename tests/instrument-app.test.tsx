@@ -1,13 +1,80 @@
 // @vitest-environment jsdom
 
-import { act, fireEvent, render, screen } from "@testing-library/preact";
-import { describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/preact";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ENGINE_PROTOCOL_VERSION, type EngineCommand, type EngineEvent, type EngineSummary } from "../src/engine/protocol.js";
 import { InstrumentApp } from "../src/ui/instrument-app.js";
 import type { WakeWorkerPort } from "../src/ui/use-wake-engine.js";
 
 describe("instrument app", () => {
+  afterEach(cleanup);
+  it("enables playback actions only when they are meaningful", async () => {
+    const worker = new FakeWorker();
+    Object.defineProperty(HTMLCanvasElement.prototype, "transferControlToOffscreen", {
+      configurable: true,
+      value: () => ({}) as OffscreenCanvas,
+    });
+    vi.stubGlobal("ResizeObserver", class { public observe(): void {} public disconnect(): void {} });
+
+    render(<InstrumentApp workerFactory={() => worker} reducedMotion />);
+    await act(async () => undefined);
+    const play = screen.getByRole("button", { name: "Play" }) as HTMLButtonElement;
+    const pause = screen.getByRole("button", { name: "Pause" }) as HTMLButtonElement;
+    const step = screen.getByRole("button", { name: /step 0\.05 D\/U/i }) as HTMLButtonElement;
+    const restart = screen.getByRole("button", { name: "Restart experiment" }) as HTMLButtonElement;
+
+    expect([play.disabled, pause.disabled, step.disabled, restart.disabled]).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ]);
+    worker.emit({
+      protocolVersion: ENGINE_PROTOCOL_VERSION,
+      sessionId: worker.commands[0]!.sessionId,
+      sequence: 0,
+      type: "ready",
+      tier: {
+        id: "cpu-balanced-d18",
+        backendId: "cpu-reference",
+        buildId: "ticket-06",
+        label: "CPU balanced",
+        cellsPerDiameter: 18,
+        defaultPlaybackRate: 1.3,
+      },
+    });
+    expect([play.disabled, pause.disabled, step.disabled, restart.disabled]).toEqual([
+      false,
+      true,
+      false,
+      false,
+    ]);
+
+    worker.emit(summaryEvent(worker, 1, { playback: "playing" }));
+    expect([play.disabled, pause.disabled, step.disabled, restart.disabled]).toEqual([
+      true,
+      false,
+      true,
+      false,
+    ]);
+
+    worker.emit({
+      protocolVersion: ENGINE_PROTOCOL_VERSION,
+      sessionId: worker.commands[0]!.sessionId,
+      sequence: 2,
+      type: "unavailable",
+      reason: "The result is unavailable.",
+      restartChoices: ["same-tier"],
+    });
+    expect([play.disabled, pause.disabled, step.disabled, restart.disabled]).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ]);
+  });
+
   it("runs the guide from a measured steady baseline to measured shedding", async () => {
     const worker = new FakeWorker();
     Object.defineProperty(HTMLCanvasElement.prototype, "transferControlToOffscreen", {
@@ -19,6 +86,27 @@ describe("instrument app", () => {
     render(<InstrumentApp workerFactory={() => worker} reducedMotion />);
     await act(async () => undefined);
     expect(worker.commands[0]).toMatchObject({ type: "initialise", reducedMotion: true });
+    worker.emit({
+      protocolVersion: ENGINE_PROTOCOL_VERSION,
+      sessionId: worker.commands[0]!.sessionId,
+      sequence: 0,
+      type: "ready",
+      tier: {
+        id: "cpu-balanced-d18",
+        backendId: "cpu-reference",
+        buildId: "ticket-06",
+        label: "CPU balanced",
+        cellsPerDiameter: 18,
+        defaultPlaybackRate: 1.3,
+      },
+    });
+    expect(
+      screen
+        .getByRole("region", { name: "Method and validation" })
+        .getAttribute("data-evidence-state"),
+    ).toBe("passing");
+    expect(screen.getByText("cpu-reference / cpu-balanced-d18 / ticket-06")).toBeTruthy();
+    expect(screen.getByText(/18 cells\/D · 1\.3× default/)).toBeTruthy();
     expect(screen.getByRole("img", { name: /full-domain wake view/i })).toBeTruthy();
     expect(screen.getAllByText(/clockwise/i)).toHaveLength(2);
 
@@ -73,6 +161,99 @@ describe("instrument app", () => {
       type: "set-scenario",
       scenario: { flowSpeedMetersPerSecond: 0.002 },
     });
+  });
+
+  it("makes a manual validated-tier change explicit and restarts the worker lifecycle", async () => {
+    const worker = new FakeWorker();
+    Object.defineProperty(HTMLCanvasElement.prototype, "transferControlToOffscreen", {
+      configurable: true,
+      value: () => ({}) as OffscreenCanvas,
+    });
+    vi.stubGlobal("ResizeObserver", class { public observe(): void {} public disconnect(): void {} });
+
+    render(<InstrumentApp workerFactory={() => worker} reducedMotion />);
+    await act(async () => undefined);
+    const initialise = worker.commands[0]!;
+    worker.emit({
+      protocolVersion: ENGINE_PROTOCOL_VERSION,
+      sessionId: initialise.sessionId,
+      sequence: 0,
+      type: "ready",
+      tier: {
+        id: "cpu-balanced-d18",
+        backendId: "cpu-reference",
+        buildId: "ticket-06",
+        label: "CPU balanced",
+        cellsPerDiameter: 18,
+        defaultPlaybackRate: 1.3,
+      },
+    });
+
+    fireEvent.change(screen.getAllByRole("spinbutton", { name: "Editable value" })[0]!, {
+      target: { value: "0.003" },
+    });
+    const qualityTierSelect = screen.getByRole("combobox", { name: "Quality tier" });
+    fireEvent.change(qualityTierSelect, {
+      target: { value: "webgpu-balanced-d18" },
+    });
+    await act(async () => undefined);
+
+    expect(worker.commands.slice(-2).map(({ type }) => type)).toEqual([
+      "dispose",
+      "initialise",
+    ]);
+    expect(worker.commands.at(-1)).toMatchObject({
+      type: "initialise",
+      scenario: { flowSpeedMetersPerSecond: 0.003 },
+    });
+    expect(localStorage.getItem("cfd-visualise-quality-tier")).toBe(
+      "webgpu-balanced-d18",
+    );
+  });
+
+  it("offers same-tier recovery and a lower validated CPU tier after WebGPU failure", async () => {
+    const worker = new FakeWorker();
+    Object.defineProperty(HTMLCanvasElement.prototype, "transferControlToOffscreen", {
+      configurable: true,
+      value: () => ({}) as OffscreenCanvas,
+    });
+    vi.stubGlobal("ResizeObserver", class { public observe(): void {} public disconnect(): void {} });
+
+    render(<InstrumentApp workerFactory={() => worker} reducedMotion />);
+    await act(async () => undefined);
+    const initialise = worker.commands[0]!;
+    worker.emit({
+      protocolVersion: ENGINE_PROTOCOL_VERSION,
+      sessionId: initialise.sessionId,
+      sequence: 0,
+      type: "ready",
+      tier: {
+        id: "webgpu-balanced-d18",
+        backendId: "webgpu-reference",
+        buildId: "ticket-08",
+        label: "WebGPU balanced",
+        cellsPerDiameter: 18,
+        defaultPlaybackRate: 2,
+      },
+    });
+    worker.emit({
+      protocolVersion: ENGINE_PROTOCOL_VERSION,
+      sessionId: initialise.sessionId,
+      sequence: 1,
+      type: "unavailable",
+      reason: "The WebGPU device was lost.",
+      restartChoices: ["same-tier", "lower-tier"],
+    });
+
+    expect(screen.getByRole("button", { name: "Restart WebGPU balanced" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Restart on CPU balanced" }));
+    await act(async () => undefined);
+
+    expect(localStorage.getItem("cfd-visualise-quality-tier")).toBe("cpu-balanced-d18");
+    expect(worker.commands.slice(-2).map(({ type }) => type)).toEqual([
+      "dispose",
+      "initialise",
+    ]);
   });
 });
 

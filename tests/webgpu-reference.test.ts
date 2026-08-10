@@ -28,7 +28,7 @@ describe("matched CPU/WebGPU reference cohort", () => {
         configuration: {
           ...cpuCase!.configuration,
           backendId: "webgpu-reference",
-          qualityTier: "webgpu-reference-d18",
+          qualityTier: "webgpu-balanced-d18",
           precision: "float32",
         },
       });

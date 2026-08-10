@@ -16,7 +16,7 @@ export const ENGINE_COMMAND_TYPES = Object.freeze([
   "dispose",
 ] as const);
 
-export interface CpuQualityTierIdentity {
+export interface QualityTierIdentity {
   readonly id: string;
   readonly backendId: string;
   readonly buildId: string;
@@ -24,6 +24,8 @@ export interface CpuQualityTierIdentity {
   readonly cellsPerDiameter: number;
   readonly defaultPlaybackRate: number;
 }
+
+export type CpuQualityTierIdentity = QualityTierIdentity;
 
 export interface CanvasViewport {
   readonly cssWidth: number;
@@ -97,7 +99,7 @@ export type EngineCommandPayload = EngineCommand extends infer Command
   : never;
 
 export type EngineEvent =
-  | (EventEnvelope & { readonly type: "ready"; readonly tier: CpuQualityTierIdentity })
+  | (EventEnvelope & { readonly type: "ready"; readonly tier: QualityTierIdentity })
   | (EventEnvelope & { readonly type: "summary"; readonly summary: EngineSummary })
   | (EventEnvelope & { readonly type: "still" } & EngineBaseline)
   | (EventEnvelope & {
