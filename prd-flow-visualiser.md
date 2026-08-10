@@ -676,4 +676,4 @@ Phase 0 and browser benchmarking resolved these shipped values:
 Regime windows and thresholds, reference metric ranges, boundary details, and
 the complete sensitivity evidence are versioned in the generated validation
 manifests rather than duplicated here. CPU tracer density and render frequency
-adapt to load; both renderers target 180 tracers at full density.
+adapt to load; both renderers target 270 tracers at full density.

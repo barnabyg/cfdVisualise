@@ -7,6 +7,7 @@ const NEGATIVE = [43, 108, 176] as const;
 const NEUTRAL = [23, 26, 31] as const;
 const POSITIVE = [221, 107, 32] as const;
 const CYLINDER = [232, 235, 238] as const;
+const TRACER_TARGET_COUNT = 270;
 
 export function normalisedVorticityColour(value: number): string {
   const [red, green, blue] = normalisedVorticityRgb(value);
@@ -91,7 +92,7 @@ export class WakeRasterRenderer {
     seedTracers(
       this.tracers,
       field,
-      Math.round(180 * this.loadPolicy.state().tracerDensity),
+      Math.round(TRACER_TARGET_COUNT * this.loadPolicy.state().tracerDensity),
     );
     advanceTracerPositions(this.tracers, field, flowThroughIncrement);
   }
@@ -193,7 +194,7 @@ export class WakeRenderer {
     enabled: boolean,
   ): void {
     if (!enabled) return;
-    seedTracers(this.tracers, field, Math.round(180 * density));
+    seedTracers(this.tracers, field, Math.round(TRACER_TARGET_COUNT * density));
     advanceTracerPositions(this.tracers, field, flowThroughIncrement);
   }
 

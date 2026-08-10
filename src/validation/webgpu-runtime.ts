@@ -25,7 +25,7 @@ import {
 
 const DIAGNOSTIC_VALUE_COUNT = 14;
 const WORKGROUP_SIZE = 64;
-const TRACER_COUNT = 180;
+const TRACER_COUNT = 270;
 const WEBGPU_PARAMETER_INDEX = Object.freeze({
   width: 0,
   height: 1,
