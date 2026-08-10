@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import {
   coupledPhysicalIntervals,
@@ -314,6 +314,15 @@ function PhysicalControl(props: {
   readonly onChange: (value: number) => void;
 }) {
   const logarithmicPosition = Math.log(props.value / props.interval[0]) / Math.log(props.interval[1] / props.interval[0]);
+  const formattedValue = formatEditableNumber(props.value);
+  const [editableValue, setEditableValue] = useState(formattedValue);
+  const previousFormattedValue = useRef(formattedValue);
+  useEffect(() => {
+    if (previousFormattedValue.current === formattedValue) return;
+    previousFormattedValue.current = formattedValue;
+    setEditableValue(formattedValue);
+  }, [formattedValue]);
+
   return (
     <fieldset class={styles.control}>
       <legend>{props.label}</legend>
@@ -338,8 +347,15 @@ function PhysicalControl(props: {
           min={props.interval[0]}
           max={props.interval[1]}
           step="any"
-          value={props.value}
-          onChange={(event) => props.onChange(Number(event.currentTarget.value))}
+          value={editableValue}
+          onChange={(event) => {
+            const nextValue = event.currentTarget.value;
+            setEditableValue(nextValue);
+            props.onChange(Number(nextValue));
+          }}
+          onBlur={(event) => {
+            setEditableValue(formatEditableNumber(Number(event.currentTarget.value)));
+          }}
         />
         <span>{props.unit}</span>
       </div>
@@ -454,4 +470,11 @@ function regimeLabel(regime: EngineSummary["regime"]): string {
 
 function formatNumber(value: number): string {
   return value < 0.001 ? value.toExponential(2) : value.toPrecision(3);
+}
+
+function formatEditableNumber(value: number): string {
+  const rounded = Number(value.toPrecision(3));
+  return rounded !== 0 && Math.abs(rounded) < 0.001
+    ? rounded.toExponential()
+    : String(rounded);
 }
