@@ -2,6 +2,12 @@
 
 > **Naming status:** "FlowVis" is a working title. Public naming is deferred.
 
+> **Implementation status (10 August 2026):** Phases 0–2 and the release-evidence
+> foundation are implemented. Phase 3 is partial. See [`README.md`](./README.md)
+> for the current feature boundary. Requirements in this document remain the
+> product contract and must not be read as claims that every feature or test is
+> already present.
+
 ## 1. Product summary
 
 The product is a browser-based fluid-intuition sandbox for STEM students who understand basic mechanics but are not expected to know computational fluid dynamics.
@@ -233,7 +239,8 @@ The desktop layout is canvas-dominant:
 - Compact physical-control panel beside it.
 - Learning readouts adjacent to controls.
 - Playback controls below the canvas.
-- Scenario library and Method and validation as secondary panels.
+- Method and validation as a secondary panel. The specified scenario library is
+  not implemented yet.
 - Guidance placed contextually without obscuring the wake.
 
 The tone is a scientific instrument made inviting: restrained interface, precise typography, dark neutral field, vivid but accessible flow colour, and delight supplied primarily by motion.
@@ -403,13 +410,14 @@ WebGPU availability is capability-detected. API presence alone does not select a
 - Vitest for unit and numerical tests.
 - Testing Library for component interaction.
 - Playwright for production-build browser workflows.
-- Axe integration plus manual accessibility review.
+- Automated accessibility checks plus manual accessibility review (planned;
+  axe is not currently installed).
 
 Tailwind is not part of the stack.
 
-### 12.2 Suggested module boundaries
+### 12.2 Implemented module boundaries
 
-Exact filenames may evolve, but the dependency direction must remain:
+The implementation follows this dependency direction:
 
 ```text
 Preact UI
@@ -429,7 +437,9 @@ validation harness
   -> generated validation manifest
 ```
 
-The domain model, physical scenario validation, and persistence schema must not depend on Preact components.
+The domain model and physical-scenario validation do not depend on Preact
+components. The planned persistence schema must preserve that direction when it
+is implemented.
 
 ## 13. Validation
 
@@ -492,18 +502,24 @@ The Method and validation panel consumes this manifest directly.
 
 ### 14.1 Support matrix
 
-The release is tested against current stable desktop:
+The target support matrix is current stable desktop:
 
 - Chrome and Edge.
 - Firefox.
 - Safari.
 
 The CPU tier must work across the matrix. WebGPU remains capability-detected.
+The required merge smoke suite currently runs bundled Chromium, Firefox,
+WebKit, and installed Chrome. An Edge Playwright project exists, while the
+release guide gate currently measures CPU in Chromium, Firefox, and WebKit and
+WebGPU in installed Firefox.
 
 ### 14.2 Performance requirements
 
 - The default guide completes within 90 seconds on every shipped tier.
-- Control input, playback commands, guidance, and library operations remain responsive while solving.
+- Control input, playback commands, and guidance remain responsive while
+  solving. The same requirement applies to library operations once that feature
+  is implemented.
 - Rendering targets smooth interaction, nominally 60 frames per second where hardware permits.
 - Tracer count and render frequency degrade before solver fidelity.
 - Solver resolution never changes mid-run.
@@ -524,46 +540,51 @@ The capability benchmark, tier resolutions, and pace limits are established thro
 
 ## 16. Verification strategy
 
-### 16.1 Static and unit verification
+### 16.1 Current static and unit verification
 
 - `tsc --noEmit` is required because the build tool does not provide type checking.
 - Solver mathematics and invariants are tested in Vitest.
-- Protocol messages and persistence documents are schema-validated.
+- Protocol messages and validation manifests/contracts are schema-validated.
+- A persistence document does not exist yet because the scenario library is not
+  implemented.
 - CPU reference cases are deterministic under fixed command sequences.
 - GPU comparisons use tolerances and physical observables, not hashes or bitwise field equality.
 
-### 16.2 Component verification
+### 16.2 Current component verification
 
 Testing Library covers:
 
 - Coupled valid control intervals.
 - Reynolds equation updates.
 - Guide decisions and transitions.
-- Explicit Save and Save as behaviour.
-- Permanent deletion semantics.
-- Migration and invalid-record handling.
-- Keyboard operation and accessible names.
+- Playback availability, tier changes, unavailable-result recovery, reduced
+  motion, semantic controls, and accessible names.
+
+Save/Save as, permanent deletion, and migration coverage remain pending with the
+scenario library.
 
 ### 16.3 Browser-boundary verification
 
-Playwright runs against the production preview in Chromium, Firefox, and WebKit and covers:
+Playwright runs against production previews and currently covers:
 
-- First-visit welcome and guide completion.
-- Returning-learner entry.
-- Uniform-flow startup and baseline detection.
-- Play, pause, Step, rate changes, restart, and hidden-tab continuation semantics.
-- CPU fallback and capability-tier selection.
-- WebGPU startup, supported execution, and device-loss handling where test infrastructure permits.
-- Worker-owned canvas creation, resize, and cleanup.
-- Full scenario-library workflow and released-schema migrations.
-- Reduced-motion startup.
-- Keyboard-only critical workflow.
+- The real CPU guide, including uniform-flow startup, baseline detection, and
+  completion, in Chromium, Firefox, and WebKit release runs.
+- CPU-worker rendering, canvas resize, stale-event rejection, cleanup,
+  reduced-motion startup, basic keyboard activation, and exact-tier evidence
+  across the merge smoke matrix.
+- WebGPU fixed-step execution, boundary alternatives, passive tracers, exact-tier
+  evidence, capability rejection, unavailable states, and device-loss recovery
+  in installed Chrome.
 
-Automated axe checks supplement, but do not replace, keyboard, contrast, and manual assistive-technology review.
+Full scenario-library migration coverage, a dedicated keyboard-only critical
+workflow, returning-learner and hidden-tab browser workflows, axe integration,
+contrast review, and manual assistive-technology evidence remain release work.
 
 ## 17. Delivery sequence
 
 ### Phase 0: Reference and validation foundation
+
+**Status: implemented.**
 
 - Implement scenario definitions, observables, and reference harness.
 - Implement the CPU TRT/BFL numerical reference.
@@ -572,12 +593,16 @@ Automated axe checks supplement, but do not replace, keyboard, contrast, and man
 
 ### Phase 1: CPU vertical slice
 
+**Status: implemented.**
+
 - Implement typed Worker protocol and CPU production tier.
 - Render normalized vorticity and passive tracers on the Worker-owned canvas.
 - Deliver the complete default guide with measured regimes and baseline comparison.
 - Meet numerical gates and the 90-second guide target on the selected CPU tier.
 
 ### Phase 2: WebGPU tier
+
+**Status: implemented.**
 
 - Implement the same TRT/BFL method and diagnostics in WebGPU.
 - Keep fields and rendering GPU-resident.
@@ -586,12 +611,21 @@ Automated axe checks supplement, but do not replace, keyboard, contrast, and man
 
 ### Phase 3: Complete learner experience
 
+**Status: partial.** The physical controls, readouts, Method and validation,
+welcome/returning flow, reduced-motion behaviour, and instrument visual system
+are present. Reference-fluid markers, the scenario library, and the remaining
+accessibility evidence are pending.
+
 - Complete physical controls, reference-fluid guide, readouts, and Method and validation.
 - Complete welcome, returning-learner, accessibility, and reduced-motion behaviour.
 - Complete versioned local scenario library and migration tests.
 - Apply the final instrument visual system.
 
 ### Phase 4: Release verification
+
+**Status: infrastructure implemented; final gate not yet satisfied.** Generated
+CPU/WebGPU evidence, freshness checks, and guide performance reporting are in
+place. The incomplete Phase 3 workflows and their release coverage remain.
 
 - Generate the release validation manifest.
 - Pass all reference, convergence, browser, critical-workflow, migration, and accessibility gates.
@@ -625,17 +659,21 @@ The MVP is releasable only when:
 
 ## 20. Evidence-driven implementation outputs
 
-The following values remain intentionally unset until Phase 0 and browser benchmarking produce evidence:
+Phase 0 and browser benchmarking resolved these shipped values:
 
-- Exact domain extents.
-- Exact cylinder cells-per-diameter for each tier.
-- TRT boundary parameter and relaxation mapping.
-- Reynolds-ramp duration.
-- Step increment.
-- Regime-detector window lengths and thresholds.
-- Fixed normalized-vorticity colour limits.
-- Tracer count and lifetime per tier.
-- Capability-benchmark cutoffs.
-- Published metric ranges in the validation manifest.
+- Production domain: `6D` upstream, `14D` downstream, and `8D` to each lateral
+  boundary.
+- CPU and WebGPU tiers: `18` cells per cylinder diameter.
+- TRT magic parameter: `3/16`; relaxation rates are derived from Reynolds
+  number, lattice speed, and diameter.
+- Guided Reynolds ramp: `4 D/U`.
+- Step increment: `0.05 D/U`.
+- Fixed normalized-vorticity limits: `-2` through `2`.
+- CPU default playback target: `1.3 D/U/s`; WebGPU default: `2 D/U/s`.
+- Minimum capability benchmark rate: `1.2 D/U/s`; maximum guide duration:
+  `90 s`.
 
-These are not open product questions. They are measured implementation outputs constrained by this PRD, the domain glossary, and the accepted ADRs.
+Regime windows and thresholds, reference metric ranges, boundary details, and
+the complete sensitivity evidence are versioned in the generated validation
+manifests rather than duplicated here. CPU tracer density and render frequency
+adapt to load; both renderers target 180 tracers at full density.

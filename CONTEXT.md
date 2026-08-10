@@ -2,6 +2,10 @@
 
 An interactive domain for helping curious learners build honest qualitative intuition about fluid flow through direct experimentation.
 
+This glossary defines the product language, including planned concepts. It is
+not an inventory of currently implemented features; see [`README.md`](./README.md)
+for the current implementation boundary.
+
 ## Language
 
 **Fluid-intuition sandbox**:
