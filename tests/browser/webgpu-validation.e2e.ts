@@ -315,6 +315,12 @@ test("supported WebGPU displays evidence for the exact selected engine identity"
   await expect(page.getByText(/WebGPU balanced · webgpu-reference/)).toBeVisible({
     timeout: 30_000,
   });
+  const validationDisclosure = page.locator("details").filter({
+    has: page.locator("summary", { hasText: "Method and validation" }),
+  });
+  await expect(validationDisclosure).not.toHaveAttribute("open", "");
+  await expect(validationDisclosure.getByText("Evidence passed", { exact: true })).toBeVisible();
+  await validationDisclosure.locator("summary").click();
   const validation = page.getByRole("region", { name: "Method and validation" });
   await expect(validation).toHaveAttribute("data-evidence-state", "passing");
   await expect(

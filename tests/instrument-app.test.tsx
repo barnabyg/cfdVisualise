@@ -105,6 +105,13 @@ describe("instrument app", () => {
         .getByRole("region", { name: "Method and validation" })
         .getAttribute("data-evidence-state"),
     ).toBe("passing");
+    const evidenceDisclosure = screen
+      .getByText("Method and validation", { selector: "summary > span:first-child" })
+      .closest("details");
+    expect(evidenceDisclosure?.open).toBe(false);
+    expect(screen.getByText("Evidence passed")).toBeTruthy();
+    fireEvent.click(evidenceDisclosure!.querySelector("summary")!);
+    expect(evidenceDisclosure?.open).toBe(true);
     expect(screen.getByText("cpu-reference / cpu-balanced-d18 / ticket-06")).toBeTruthy();
     expect(screen.getByText(/18 cells\/D · 1\.3× default/)).toBeTruthy();
     expect(screen.getByRole("img", { name: /full-domain wake view/i })).toBeTruthy();

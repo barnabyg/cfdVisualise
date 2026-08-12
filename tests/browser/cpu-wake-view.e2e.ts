@@ -52,6 +52,12 @@ test("production CPU Worker renders, resizes, rejects stale events, and disposes
   await expect(page.getByText(/CPU balanced · cpu-reference/)).toBeVisible({
     timeout: 20_000,
   });
+  const validationDisclosure = page.locator("details").filter({
+    has: page.locator("summary", { hasText: "Method and validation" }),
+  });
+  await expect(validationDisclosure).not.toHaveAttribute("open", "");
+  await expect(validationDisclosure.getByText("Evidence passed", { exact: true })).toBeVisible();
+  await validationDisclosure.locator("summary").click();
   const validation = page.getByRole("region", { name: "Method and validation" });
   await expect(validation).toHaveAttribute("data-evidence-state", "passing");
   await expect(
