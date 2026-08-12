@@ -17,6 +17,9 @@ const environment = {
   ...process.env,
   CFD_GUIDE_PERFORMANCE_DIR: measurementDirectory,
 };
+const dashboardReporter = process.env.CFD_TEST_DASHBOARD_EVENTS_URL === undefined
+  ? ""
+  : ",./scripts/test-dashboard/playwright-reporter.mjs";
 const cpuExitCode = await runNodeCommand({
   workspace,
   label: "CPU browser-matrix guide gate",
@@ -26,7 +29,7 @@ const cpuExitCode = await runNodeCommand({
     "--project=chromium",
     "--project=firefox",
     "--project=webkit",
-    "--reporter=list,./scripts/guide-performance-reporter.mjs",
+    `--reporter=list,./scripts/guide-performance-reporter.mjs${dashboardReporter}`,
   ],
   env: environment,
 });

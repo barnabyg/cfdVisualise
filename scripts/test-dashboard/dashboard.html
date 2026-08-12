@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Verification dashboard</title>
+    <link rel="stylesheet" href="/dashboard.css" />
+  </head>
+  <body>
+    <main>
+      <header class="hero">
+        <div>
+          <p class="eyebrow">CFD VISUALISE</p>
+          <h1>Verification dashboard</h1>
+          <p id="run-label" class="subtitle">Waiting for a verification run…</p>
+        </div>
+        <div class="run-status">
+          <span id="status" class="status waiting">Waiting</span>
+          <strong id="elapsed">00:00</strong>
+        </div>
+      </header>
+
+      <section id="metadata" class="metadata" aria-label="Run metadata"></section>
+
+      <section class="panel pipeline-panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">PIPELINE</p>
+            <h2>Verification stages</h2>
+          </div>
+          <span id="stage-summary" class="muted">0 stages</span>
+        </div>
+        <div class="progress-track"><div id="progress" class="progress-bar"></div></div>
+        <div id="stages" class="stages"></div>
+      </section>
+
+      <div class="columns">
+        <section class="panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">TESTS</p>
+              <h2>Live test activity</h2>
+            </div>
+            <strong id="test-summary">0 / 0</strong>
+          </div>
+          <div id="test-counts" class="test-counts"></div>
+          <div id="active-tests" class="active-tests empty">No test is currently running.</div>
+          <div id="recent-tests" class="recent-tests"></div>
+        </section>
+
+        <section class="panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">OUTPUT</p>
+              <h2>Current stage</h2>
+            </div>
+            <span id="output-stage" class="muted">Idle</span>
+          </div>
+          <pre id="output" class="output" aria-live="polite">Waiting for output…</pre>
+        </section>
+      </div>
+
+      <section id="failures-panel" class="panel failures-panel" hidden>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow danger-text">FAILURES</p>
+            <h2>Action needed</h2>
+          </div>
+        </div>
+        <div id="failures"></div>
+      </section>
+    </main>
+    <script type="module" src="/dashboard.js"></script>
+  </body>
+</html>

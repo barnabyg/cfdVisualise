@@ -17,13 +17,13 @@
     "test:guide:matrix": "node scripts/run-browser-tests.mjs tests/browser/guide-performance.e2e.ts --project=chromium --project=firefox --project=webkit",
     "test:guide:release": "node scripts/run-release-guide-tests.mjs",
     "test:firefox-webgpu": "node scripts/run-firefox-webgpu-test.mjs",
-    "test": "vitest run",
+    "test": "vitest run --reporter=default --reporter=./scripts/test-dashboard/vitest-reporter.mjs",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "verify": "npm run typecheck && npm test && npm run check:evidence && npm run build && npm run test:browser:smoke",
-    "verify:engine": "npm run verify && npm run test:guide:cpu && npm run test:firefox-webgpu",
-    "verify:evidence": "npm run validate:quality-tiers && git diff --exit-code HEAD -- src/engine/cpu-production-manifest.json src/validation/webgpu-backend-manifest.json validation-evidence-lock.json",
-    "verify:release": "npm run verify:evidence && npm run verify && npm run test:guide:release"
+    "verify": "node scripts/run-verification.mjs verify",
+    "verify:engine": "node scripts/run-verification.mjs engine",
+    "verify:evidence": "node scripts/run-verification.mjs evidence",
+    "verify:release": "node scripts/run-verification.mjs release"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

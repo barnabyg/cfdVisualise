@@ -67,6 +67,23 @@ Browser tests require the Playwright browser binaries. Install them once with
 `npm run validate:quality-tiers` intentionally performs the long scientific
 evidence generation that is excluded from the normal merge path.
 
+### Live verification dashboard
+
+Every local `verify*` command starts a dashboard at `http://127.0.0.1:4176/`
+and prints that URL as `TEST_DASHBOARD_URL`. The page shows the active
+verification stage, individual Vitest and Playwright activity, recent output,
+timings, and failures. The server binds only to `127.0.0.1`, shuts down when
+verification completes, and is not started when `CI` is set. Set
+`CFD_TEST_DASHBOARD=0` to opt out locally, or set `CFD_TEST_DASHBOARD_PORT` when
+the default port is unavailable.
+If another verification already owns the default port, a concurrent run
+automatically chooses a free port and prints the resulting URL.
+
+Codex agents are instructed in [`AGENTS.md`](./AGENTS.md) to open the URL when
+full verification begins. The reusable integration and global-instruction
+pattern are documented in
+[`docs/agents/test-dashboard.md`](./docs/agents/test-dashboard.md).
+
 ## Architecture and evidence
 
 The Preact UI communicates through a typed protocol with a dedicated worker.
