@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1",
   "inputs": {
-    "sha256": "adb1d40851c4fd25ad8d98b274db2b42254c29c7b1243b0a8980852ada6909a9"
+    "sha256": "06b1ad1cb230b49ce1ae87115e066adb650fccb30ce7799035cda86cfc78817e"
   },
   "manifests": {
     "cpu": {
