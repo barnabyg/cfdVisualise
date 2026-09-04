@@ -4,12 +4,10 @@ import webGpuChromeArgs from "./scripts/webgpu-chrome-profile.json" with { type:
 export default defineConfig({
   testDir: "./tests/browser",
   testMatch: "**/*.e2e.ts",
-  reporter: process.env.CFD_TEST_DASHBOARD_EVENTS_URL === undefined
-    ? "list"
-    : [
-        ["list"],
-        ["./scripts/test-dashboard/playwright-reporter.mjs"],
-      ],
+  reporter: [
+    ["list"],
+    ["./scripts/test-dashboard/playwright-reporter.mjs"],
+  ],
   timeout: 30_000,
   fullyParallel: false,
   workers: 1,

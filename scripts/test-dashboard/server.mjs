@@ -96,18 +96,25 @@ export async function startDashboard({ host = "127.0.0.1", port = 0 } = {}) {
     throw new Error("Dashboard server did not bind to a TCP port.");
   }
   const url = `http://${host}:${address.port}/`;
+  let closePromise;
 
   return {
     url,
     eventsUrl: `${url}api/events/${eventToken}`,
     publish,
     snapshot: () => structuredClone(state),
-    async close() {
-      for (const client of clients) client.end();
-      clients.clear();
-      await new Promise((resolvePromise, reject) => {
+    close() {
+      if (closePromise !== undefined) return closePromise;
+      closePromise = new Promise((resolvePromise, reject) => {
         server.close((error) => (error === undefined ? resolvePromise() : reject(error)));
       });
+      for (const client of clients) client.end();
+      clients.clear();
+      // A browser EventSource can reconnect while shutdown is in progress, and
+      // ordinary keep-alive sockets otherwise delay server.close(). Verification
+      // has finished, so no dashboard connection needs a graceful drain.
+      server.closeAllConnections();
+      return closePromise;
     },
   };
 }

@@ -65,11 +65,22 @@ if (requestedComponent !== undefined) {
   console.info(`Completed passing ${requestedComponent} CPU production evidence.`);
 } else {
   await mkdir(intermediateDirectory, { recursive: true });
+  const componentNames = Object.keys(components) as Component[];
+  let completedComponents = 0;
+  console.info(
+    `[progress] CPU evidence: 0 of ${componentNames.length} components completed.`,
+  );
   await Promise.all(
-    (Object.keys(components) as Component[]).map((component) => runComponent(component)),
+    componentNames.map(async (component) => {
+      await runComponent(component);
+      completedComponents += 1;
+      console.info(
+        `[progress] CPU evidence: component ${completedComponents} of ${componentNames.length} completed: ${component}.`,
+      );
+    }),
   );
   const manifests = await Promise.all(
-    (Object.keys(components) as Component[]).map(async (component) =>
+    componentNames.map(async (component) =>
       parseValidationManifest(
         JSON.parse(await readFile(componentPath(component), "utf8")) as unknown,
       ),
@@ -83,12 +94,37 @@ if (requestedComponent !== undefined) {
 }
 
 async function validate(suite: ValidationSuite): Promise<ValidationManifest> {
+  let startedCases = 0;
   const backend: SolverBackend = {
     schemaVersion: "1",
     identity: CPU_REFERENCE_BACKEND_IDENTITY,
     async *runCase(definition) {
-      console.info(`Validating ${definition.id} at Re=${definition.reynoldsNumber}...`);
-      yield* runCpuReferenceCase(definition);
+      startedCases += 1;
+      const caseNumber = startedCases;
+      const totalCases = suite.cases.length;
+      const targetFlowThroughTime =
+        definition.protocol.warmUpFlowThroughTime +
+        definition.protocol.sampleFlowThroughTime;
+      let nextPercentage = 10;
+      console.info(
+        `[progress] ${suite.id}: case ${caseNumber} of ${totalCases} started: ${definition.id} at Re=${definition.reynoldsNumber}.`,
+      );
+      for await (const sample of runCpuReferenceCase(definition)) {
+        const percentage = Math.min(
+          100,
+          Math.floor((sample.flowThroughTime / targetFlowThroughTime) * 100),
+        );
+        while (percentage >= nextPercentage && nextPercentage <= 100) {
+          console.info(
+            `[progress] ${suite.id}: case ${caseNumber} of ${totalCases} is ${nextPercentage}% complete (${sample.flowThroughTime.toFixed(1)} of ${targetFlowThroughTime} D/U): ${definition.id}.`,
+          );
+          nextPercentage += 10;
+        }
+        yield sample;
+      }
+      console.info(
+        `[progress] ${suite.id}: case ${caseNumber} of ${totalCases} simulation completed: ${definition.id}.`,
+      );
     },
   };
   const manifest = await runValidation(suite, backend);

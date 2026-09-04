@@ -7,12 +7,15 @@ import { startDashboard } from "./test-dashboard/server.mjs";
 const npmEntrypoint = process.env.npm_execpath;
 export const defaultDashboardPort = 4176;
 
-const mergeStages = [
+const coreStages = [
   npmStage("typecheck", "TypeScript", "typecheck"),
   npmStage("unit", "Vitest", "test"),
   npmStage("evidence-check", "Evidence freshness", "check:evidence"),
   npmStage("build", "Production build", "build"),
-  npmStage("browser-smoke", "Browser smoke matrix", "test:browser:smoke"),
+];
+const mergeStages = [
+  ...coreStages,
+  npmStage("browser-smoke", "Primary-browser smoke", "test:browser:smoke"),
 ];
 
 const evidenceStages = [
@@ -38,12 +41,17 @@ export const verificationProfiles = {
   engine: [
     ...mergeStages,
     npmStage("cpu-guide", "Real CPU guide", "test:guide:cpu"),
+  ],
+  compat: [
+    ...coreStages,
+    npmStage("browser-compat", "Cross-browser compatibility matrix", "test:browser:compat"),
     npmStage("firefox-webgpu", "Firefox WebGPU guide", "test:firefox-webgpu"),
   ],
   evidence: evidenceStages,
   release: [
     ...evidenceStages,
-    ...mergeStages,
+    ...coreStages,
+    npmStage("browser-compat", "Cross-browser compatibility matrix", "test:browser:compat"),
     npmStage("release-guides", "Release guide gates", "test:guide:release"),
   ],
 };
@@ -102,9 +110,12 @@ export async function runVerification(profileName, options = {}) {
 
   let exitCode = 0;
   try {
-    for (const stage of stages) {
+    for (const [stageIndex, stage] of stages.entries()) {
       const stageStartedAt = Date.now();
-      process.stdout.write(`\n[verification] ${stage.label}\n`);
+      const ordinal = stageIndex + 1;
+      process.stdout.write(
+        `\n[verification] Stage ${ordinal} of ${stages.length} started: ${stage.label}\n`,
+      );
       publish({ type: "stage:start", id: stage.id, label: stage.label });
       exitCode = await runStage(stage, {
         ...process.env,
@@ -118,6 +129,9 @@ export async function runVerification(profileName, options = {}) {
         exitCode,
         durationMs: Date.now() - stageStartedAt,
       });
+      process.stdout.write(
+        `[verification] Stage ${ordinal} of ${stages.length} completed (${exitCode === 0 ? "passed" : "failed"}): ${stage.label}\n`,
+      );
       if (exitCode !== 0) break;
     }
   } finally {

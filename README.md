@@ -49,8 +49,10 @@ npm run build
 npm run preview
 ```
 
-Browser tests require the Playwright browser binaries. Install them once with
-`npx playwright install` if they are not already available.
+Routine browser smoke tests require installed Chrome. Explicit compatibility
+and release testing also require the Playwright browser binaries; install them
+once with `npx playwright install chromium firefox webkit` if they are not
+already available.
 
 ## Verification
 
@@ -58,14 +60,27 @@ Browser tests require the Playwright browser binaries. Install them once with
 | --- | --- |
 | `npm test` | Fast Vitest unit, component, numerical, schema, and evidence-contract tests. |
 | `npm run typecheck` | Strict TypeScript checking without emitting files. |
-| `npm run test:browser:smoke` | Production-preview smoke coverage in bundled Chromium, Firefox, WebKit, and installed Chrome. |
-| `npm run verify` | Required merge check: typecheck, Vitest, evidence freshness, production build, and browser smoke tests. |
-| `npm run verify:engine` | Merge checks plus the real CPU guide and installed-Firefox WebGPU guide. |
+| `npm run test:browser:smoke` | Production-preview smoke coverage in the primary installed Chrome browser. |
+| `npm run test:browser:compat` | Explicit compatibility coverage in Chromium, Firefox, WebKit, and installed Chrome. |
+| `npm run verify` | Required routine check: typecheck, Vitest, evidence freshness, production build, and primary-browser smoke tests. |
+| `npm run verify:engine` | Routine checks plus the real CPU guide in the primary browser. |
+| `npm run verify:compat` | Explicit cross-browser compatibility matrix plus the installed-Firefox WebGPU guide. |
 | `npm run validate:quality-tiers` | Regenerate the CPU/WebGPU manifests and evidence lock. |
-| `npm run verify:release` | Regenerate and reject evidence drift, run merge checks, and enforce CPU browser-matrix and Firefox WebGPU guide gates. |
+| `npm run verify:release` | Regenerate and reject evidence drift, run core checks and the compatibility matrix, and enforce CPU browser-matrix and Firefox WebGPU guide gates. |
 
 `npm run validate:quality-tiers` intentionally performs the long scientific
 evidence generation that is excluded from the normal merge path.
+
+Cross-browser compatibility is intentionally excluded from routine development
+and merge verification. Run `npm run verify:compat` only when compatibility
+coverage is explicitly requested or when preparing a release; release
+verification retains the complete browser matrix.
+
+Verification commands report ordinal progress in the terminal as well as the
+dashboard. The orchestrator reports stage progress, Vitest reports completed
+test files, Playwright reports individual tests, and scientific evidence
+generation reports components and cases. Long-running validation cases also
+report intermediate flow-through progress.
 
 ### Live verification dashboard
 

@@ -105,6 +105,7 @@ firefox.stderr.on("data", (chunk) => {
 
 let session;
 try {
+  process.stdout.write("[progress] Firefox WebGPU guide: 0 of 4 milestones completed.\n");
   await waitForViteServer(APP_URL, "Firefox WebGPU test server", 100);
   const websocketBase = await waitForWebDriverBidi(firefox, () => firefoxOutput);
   session = await BidiSession.connect(`${websocketBase}/session`);
@@ -132,6 +133,9 @@ try {
     }
     return text.includes(WEBGPU_EVIDENCE_IDENTITY);
   });
+  process.stdout.write(
+    "[progress] Firefox WebGPU guide: milestone 1 of 4 completed: production WebGPU tier ready.\n",
+  );
   const guideStartedAt = performance.now();
   const started = await session.evaluate(
     context,
@@ -154,6 +158,9 @@ try {
       return text.includes("Baseline measured");
     },
     45_000,
+  );
+  process.stdout.write(
+    "[progress] Firefox WebGPU guide: milestone 2 of 4 completed: baseline measured.\n",
   );
 
   const predicted = await session.evaluate(
@@ -189,6 +196,9 @@ try {
     })()`,
   );
   if (committed !== true) throw new Error("Could not commit the guide prediction in Firefox.");
+  process.stdout.write(
+    "[progress] Firefox WebGPU guide: milestone 3 of 4 completed: prediction committed.\n",
+  );
 
   const elapsedBeforeObservation = performance.now() - guideStartedAt;
   const remainingGuideTime = Math.max(1_000, 90_000 - elapsedBeforeObservation);
@@ -204,6 +214,9 @@ try {
     remainingGuideTime,
   );
   const durationSeconds = (performance.now() - guideStartedAt) / 1_000;
+  process.stdout.write(
+    "[progress] Firefox WebGPU guide: milestone 4 of 4 completed: prediction compared.\n",
+  );
   await writeGuidePerformanceMeasurement(durationSeconds);
   if (durationSeconds > 90) {
     throw new Error(`Firefox WebGPU guide took ${durationSeconds.toFixed(2)}s; maximum is 90s.`);

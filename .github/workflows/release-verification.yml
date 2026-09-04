@@ -40,6 +40,9 @@ jobs:
       - name: Run fast schema, negative, build, and production-browser checks
         run: npm run verify
 
+      - name: Run the explicit cross-browser compatibility matrix
+        run: npm run test:browser:compat
+
       - name: Enforce per-tier 90-second default-guide gates
         run: npm run test:guide:release
 

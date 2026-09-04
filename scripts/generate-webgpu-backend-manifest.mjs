@@ -27,6 +27,9 @@ if (requestedComponent !== undefined) {
   if (!componentNames.includes(requestedComponent)) {
     throw new Error(`Unknown WebGPU validation component ${requestedComponent}.`);
   }
+  console.log(
+    `[progress] WebGPU evidence: component ${componentNames.indexOf(requestedComponent) + 1} of ${componentNames.length} started: ${requestedComponent}.`,
+  );
   const artifact = await runInBrowser({ componentName: requestedComponent });
   await writeFile(componentPath(requestedComponent), artifact.manifest, "utf8");
   if (artifact.summary.status !== "pass") {
@@ -35,16 +38,22 @@ if (requestedComponent !== undefined) {
     );
   }
   console.log(
-    `Checkpointed passing ${requestedComponent} WebGPU evidence with ${artifact.summary.cases} cases.`,
+    `[progress] WebGPU evidence: component ${componentNames.indexOf(requestedComponent) + 1} of ${componentNames.length} completed with ${artifact.summary.cases} passing cases: ${requestedComponent}.`,
   );
 } else {
-  for (const component of componentNames) {
+  console.log(`[progress] WebGPU evidence: 0 of ${componentNames.length} components completed.`);
+  for (const [componentIndex, component] of componentNames.entries()) {
     try {
       await access(componentPath(component));
-      console.log(`Reusing checkpointed ${component} WebGPU evidence.`);
+      console.log(
+        `[progress] WebGPU evidence: component ${componentIndex + 1} of ${componentNames.length} reused from a matching checkpoint: ${component}.`,
+      );
     } catch {
       await runComponent(component);
     }
+    console.log(
+      `[progress] WebGPU evidence: component ${componentIndex + 1} of ${componentNames.length} available: ${component}.`,
+    );
   }
   const componentInputs = await Promise.all(
     componentNames.map((component) => readFile(componentPath(component), "utf8")),
@@ -82,6 +91,10 @@ async function runInBrowser(input) {
       args: webGpuChromeArgs,
     });
     const page = await browser.newPage();
+    page.on("console", (message) => {
+      const text = message.text();
+      if (text.startsWith("[progress]")) process.stdout.write(`${text}\n`);
+    });
     await page.goto(origin);
     return await page.evaluate(async (request) => {
       const backendModule = await import(
@@ -110,7 +123,39 @@ async function runInBrowser(input) {
         if (backendResult.status !== "ready") {
           throw new Error(`${backendResult.reason}: ${backendResult.message}`);
         }
-        const manifest = await validationModule.runValidation(suite, backendResult.backend);
+        let startedCases = 0;
+        const progressBackend = {
+          ...backendResult.backend,
+          async *runCase(definition) {
+            startedCases += 1;
+            const caseNumber = startedCases;
+            const totalCases = suite.cases.length;
+            const targetFlowThroughTime =
+              definition.protocol.warmUpFlowThroughTime +
+              definition.protocol.sampleFlowThroughTime;
+            let nextPercentage = 10;
+            console.info(
+              `[progress] ${suite.id}: case ${caseNumber} of ${totalCases} started: ${definition.id} at Re=${definition.reynoldsNumber}.`,
+            );
+            for await (const sample of backendResult.backend.runCase(definition)) {
+              const percentage = Math.min(
+                100,
+                Math.floor((sample.flowThroughTime / targetFlowThroughTime) * 100),
+              );
+              while (percentage >= nextPercentage && nextPercentage <= 100) {
+                console.info(
+                  `[progress] ${suite.id}: case ${caseNumber} of ${totalCases} is ${nextPercentage}% complete (${sample.flowThroughTime.toFixed(1)} of ${targetFlowThroughTime} D/U): ${definition.id}.`,
+                );
+                nextPercentage += 10;
+              }
+              yield sample;
+            }
+            console.info(
+              `[progress] ${suite.id}: case ${caseNumber} of ${totalCases} simulation completed: ${definition.id}.`,
+            );
+          },
+        };
+        const manifest = await validationModule.runValidation(suite, progressBackend);
         backendResult.device.destroy();
         return {
           manifest: schemaModule.serializeValidationManifest(manifest),

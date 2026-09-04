@@ -96,7 +96,7 @@ function renderStages() {
 
 function renderTests() {
   const tests = state.tests;
-  elements.testSummary.textContent = `${tests.completed} / ${tests.planned}`;
+  elements.testSummary.textContent = `${tests.completed} of ${tests.planned} complete`;
   elements.testCounts.replaceChildren(
     countElement("passed", tests.passed),
     countElement("failed", tests.failed),
