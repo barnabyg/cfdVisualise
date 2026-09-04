@@ -16,6 +16,7 @@ import {
   type EngineCommandPayload,
   type EngineEvent,
   type EngineSummary,
+  type WakeEncodingFocus,
 } from "../engine/protocol.js";
 import {
   BUNDLED_QUALITY_TIERS,
@@ -50,6 +51,7 @@ export interface UseWakeEngineOptions {
 export interface WakeEngineFacade {
   readonly canvasRef: (canvas: HTMLCanvasElement | null) => void;
   readonly summary: EngineSummary;
+  readonly encodingFocus: WakeEncodingFocus;
   readonly tier?: QualityTierIdentity;
   readonly availableTiers: readonly QualityTierIdentity[];
   readonly unavailableReason?: string;
@@ -66,6 +68,7 @@ export interface WakeEngineFacade {
   setScenario(scenario: PhysicalScenario): void;
   setPlaybackRate(rate: number): void;
   setTracersEnabled(enabled: boolean): void;
+  setEncodingFocus(focus: WakeEncodingFocus): void;
 }
 
 const INITIAL_SUMMARY: EngineSummary = Object.freeze({
@@ -86,7 +89,9 @@ export function useWakeEngine(options: UseWakeEngineOptions = {}): WakeEngineFac
   const framePresenterRef = useRef<WorkerFramePresenter>();
   const sessionIdRef = useRef("");
   const scenarioRef = useRef<PhysicalScenario>(DEFAULT_PHYSICAL_SCENARIO);
+  const encodingFocusRef = useRef<WakeEncodingFocus>("combined");
   const [summary, setSummary] = useState(INITIAL_SUMMARY);
+  const [encodingFocus, setEncodingFocus] = useState<WakeEncodingFocus>("combined");
   const [tier, setTier] = useState<QualityTierIdentity>();
   const [selectedTier, setSelectedTier] = useState<QualityTierIdentity>();
   const [unavailableReason, setUnavailableReason] = useState<string>();
@@ -175,6 +180,7 @@ export function useWakeEngine(options: UseWakeEngineOptions = {}): WakeEngineFac
           viewport,
           scenario: scenarioRef.current,
           reducedMotion,
+          encodingFocus: encodingFocusRef.current,
         }),
         [offscreen],
       );
@@ -187,6 +193,7 @@ export function useWakeEngine(options: UseWakeEngineOptions = {}): WakeEngineFac
           viewport,
           scenario: scenarioRef.current,
           reducedMotion,
+          encodingFocus: encodingFocusRef.current,
         }),
       );
     }
@@ -224,6 +231,7 @@ export function useWakeEngine(options: UseWakeEngineOptions = {}): WakeEngineFac
   return {
     canvasRef,
     summary,
+    encodingFocus,
     availableTiers: BUNDLED_QUALITY_TIERS.map(({ identity }) => identity),
     ...(tier === undefined ? {} : { tier }),
     ...(unavailableReason === undefined ? {} : { unavailableReason }),
@@ -271,6 +279,11 @@ export function useWakeEngine(options: UseWakeEngineOptions = {}): WakeEngineFac
     setPlaybackRate: (targetFlowThroughTimePerSecond) =>
       send({ type: "set-playback-rate", targetFlowThroughTimePerSecond }),
     setTracersEnabled: (enabled) => send({ type: "set-tracers-enabled", enabled }),
+    setEncodingFocus: (focus) => {
+      encodingFocusRef.current = focus;
+      setEncodingFocus(focus);
+      send({ type: "set-encoding-focus", focus });
+    },
   };
 }
 

@@ -18,6 +18,7 @@ import {
   reynoldsNumber,
   validatePhysicalScenario,
 } from "./physical-scenario.js";
+import type { WakeEncodingFocus } from "./protocol.js";
 
 const ADAPTING_FLOW_THROUGH_TIME = 4;
 const ADAPTATION_WAKE_PERTURBATION = 0.002;
@@ -140,8 +141,9 @@ export class WebGpuWakeSimulation {
   public renderFrame(
     flowThroughIncrement: number,
     tracersEnabled: boolean,
+    encodingFocus: WakeEncodingFocus = "combined",
   ): ReturnType<WebGpuInteractiveCaseExecution["renderFrame"]> {
-    return this.execution.renderFrame(flowThroughIncrement, tracersEnabled);
+    return this.execution.renderFrame(flowThroughIncrement, tracersEnabled, encodingFocus);
   }
 
   public resetTracers(): void {

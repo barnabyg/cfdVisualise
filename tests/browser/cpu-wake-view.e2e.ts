@@ -49,6 +49,16 @@ test("production CPU Worker renders, resizes, rejects stale events, and disposes
 
   const wake = page.getByRole("img", { name: /full-domain wake view/i });
   await expect(wake).toBeVisible();
+  const encodingKey = page.getByRole("region", { name: "Wake encoding key" });
+  await expect(encodingKey.getByText("Motion", { exact: true })).toBeVisible();
+  await expect(encodingKey.getByText("Rotation", { exact: true })).toBeVisible();
+  await expect(encodingKey.getByText(/neutral \/ zero/i)).toBeVisible();
+  const motionEncoding = encodingKey.getByRole("button", { name: /motion.*passive tracer/i });
+  await motionEncoding.focus();
+  await page.keyboard.press("Enter");
+  await expect(motionEncoding).toHaveAttribute("aria-pressed", "true");
+  await encodingKey.getByRole("button", { name: /rotation.*signed normalized vorticity/i }).click();
+  await expect.poll(() => auditedCommands).toContain("set-encoding-focus");
   await expect(page.getByText(/CPU balanced · cpu-reference/)).toBeVisible({
     timeout: 20_000,
   });
@@ -83,6 +93,25 @@ test("production CPU Worker renders, resizes, rejects stale events, and disposes
   const before = await wake.evaluate((canvas) => (canvas as HTMLCanvasElement).width);
   await page.setViewportSize({ width: 980, height: 760 });
   await expect.poll(() => wake.evaluate((canvas) => (canvas as HTMLCanvasElement).width)).not.toBe(before);
+
+  await page.setViewportSize({ width: 480, height: 900 });
+  await expect.poll(() => encodingKey.evaluate((element) => ({
+    position: getComputedStyle(element).position,
+    narrow: matchMedia("(max-width: 620px)").matches,
+  }))).toEqual({ position: "absolute", narrow: true });
+  const [narrowWakeBounds, narrowKeyBounds] = await Promise.all([
+    wake.boundingBox(),
+    encodingKey.boundingBox(),
+  ]);
+  expect(narrowWakeBounds).not.toBeNull();
+  expect(narrowKeyBounds).not.toBeNull();
+  expect(narrowKeyBounds!.y).toBeGreaterThan(
+    narrowWakeBounds!.y + narrowWakeBounds!.height * 0.55,
+  );
+  expect(narrowKeyBounds!.y + narrowKeyBounds!.height).toBeLessThanOrEqual(
+    narrowWakeBounds!.y + narrowWakeBounds!.height,
+  );
+  await page.setViewportSize({ width: 980, height: 760 });
 
   await page.getByRole("button", { name: /start guided experiment/i }).focus();
   await page.keyboard.press("Enter");

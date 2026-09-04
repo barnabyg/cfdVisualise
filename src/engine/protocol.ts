@@ -13,8 +13,11 @@ export const ENGINE_COMMAND_TYPES = Object.freeze([
   "set-scenario",
   "set-playback-rate",
   "set-tracers-enabled",
+  "set-encoding-focus",
   "dispose",
 ] as const);
+
+export type WakeEncodingFocus = "combined" | "motion" | "rotation";
 
 export interface QualityTierIdentity {
   readonly id: string;
@@ -47,6 +50,7 @@ export type EngineCommand =
       readonly viewport: CanvasViewport;
       readonly scenario: PhysicalScenario;
       readonly reducedMotion: boolean;
+      readonly encodingFocus: WakeEncodingFocus;
     })
   | (CommandEnvelope & { readonly type: "resize"; readonly viewport: CanvasViewport })
   | (CommandEnvelope & { readonly type: "play" })
@@ -65,6 +69,10 @@ export type EngineCommand =
   | (CommandEnvelope & {
       readonly type: "set-tracers-enabled";
       readonly enabled: boolean;
+    })
+  | (CommandEnvelope & {
+      readonly type: "set-encoding-focus";
+      readonly focus: WakeEncodingFocus;
     })
   | (CommandEnvelope & { readonly type: "dispose" });
 

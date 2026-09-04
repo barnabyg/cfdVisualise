@@ -22,9 +22,11 @@ import {
   type WebGpuComputePipelineHandle,
   type WebGpuDeviceHandle,
 } from "./webgpu-api.js";
+import type { WakeEncodingFocus } from "../engine/protocol.js";
 
 const DIAGNOSTIC_VALUE_COUNT = 14;
 const WORKGROUP_SIZE = 64;
+const WEBGPU_TRACER_TAIL_EMPHASIS = 0.45;
 const TRACER_COUNT = 270;
 const WEBGPU_PARAMETER_INDEX = Object.freeze({
   width: 0,
@@ -47,6 +49,7 @@ const WEBGPU_PARAMETER_INDEX = Object.freeze({
   outletMode: 17,
   renderFlowIncrement: 18,
   tracersEnabled: 19,
+  encodingFocus: 20,
 });
 const WEBGPU_PARAMETER_COUNT = Object.keys(WEBGPU_PARAMETER_INDEX).length;
 const WGSL_CX = D2Q9_OPEN_CYLINDER_CONTRACT.directions
@@ -66,6 +69,12 @@ const WGSL_WEIGHTS = D2Q9_OPEN_CYLINDER_CONTRACT.weights
     throw new Error(`Unsupported D2Q9 weight ${weight}.`);
   })
   .join(", ");
+
+export function webGpuTracerDirectionEmphasis(progress: number): number {
+  const boundedProgress = Math.max(0, Math.min(1, progress));
+  return WEBGPU_TRACER_TAIL_EMPHASIS
+    + (1 - WEBGPU_TRACER_TAIL_EMPHASIS) * boundedProgress;
+}
 
 export type WebGpuExecutionFailureReason = "diagnostic-failure" | "device-lost";
 
@@ -92,7 +101,11 @@ export interface WebGpuInteractiveCaseExecution extends FixedStepCaseExecution {
     readonly flowThroughTime: number;
     readonly stepsSinceSample: number;
   }): Promise<ValidationSample>;
-  renderFrame(flowThroughIncrement: number, tracersEnabled: boolean): Promise<{
+  renderFrame(
+    flowThroughIncrement: number,
+    tracersEnabled: boolean,
+    encodingFocus?: WakeEncodingFocus,
+  ): Promise<{
     readonly width: number;
     readonly height: number;
     readonly pixels: Uint8ClampedArray;
@@ -203,11 +216,11 @@ export async function createWebGpuInteractiveCase(
             () => execution.advanceAndSample(options),
           );
         },
-        renderFrame(flowThroughIncrement, tracersEnabled) {
+        renderFrame(flowThroughIncrement, tracersEnabled, encodingFocus) {
           return classifyNativeWebGpuFailure(
             device,
             `WebGPU interactive case ${definition.id} render`,
-            () => execution.renderFrame(flowThroughIncrement, tracersEnabled),
+            () => execution.renderFrame(flowThroughIncrement, tracersEnabled, encodingFocus),
           );
         },
         resetTracers() {
@@ -503,6 +516,7 @@ class WebGpuCaseExecution {
   public async renderFrame(
     flowThroughIncrement: number,
     tracersEnabled: boolean,
+    encodingFocus: WakeEncodingFocus = "combined",
   ): Promise<{
     readonly width: number;
     readonly height: number;
@@ -513,6 +527,8 @@ class WebGpuCaseExecution {
     }
     this.parameterValues[WEBGPU_PARAMETER_INDEX.renderFlowIncrement] = flowThroughIncrement;
     this.parameterValues[WEBGPU_PARAMETER_INDEX.tracersEnabled] = tracersEnabled ? 1 : 0;
+    this.parameterValues[WEBGPU_PARAMETER_INDEX.encodingFocus] =
+      encodingFocus === "motion" ? 1 : encodingFocus === "rotation" ? 2 : 0;
     this.device.queue.writeBuffer(this.resources.parameters, 0, this.parameterValues);
     const byteLength = this.geometry.cellCount * Uint32Array.BYTES_PER_ELEMENT;
     const encoder = this.device.createCommandEncoder({
@@ -1089,6 +1105,7 @@ fn periodic_lateral() -> bool { return parameters[${WEBGPU_PARAMETER_INDEX.later
 fn outlet_mode() -> u32 { return u32(parameters[${WEBGPU_PARAMETER_INDEX.outletMode}]); }
 fn render_flow_increment() -> f32 { return parameters[${WEBGPU_PARAMETER_INDEX.renderFlowIncrement}]; }
 fn tracers_enabled() -> bool { return parameters[${WEBGPU_PARAMETER_INDEX.tracersEnabled}] >= 0.5; }
+fn encoding_focus() -> u32 { return u32(parameters[${WEBGPU_PARAMETER_INDEX.encodingFocus}]); }
 
 fn cx(direction: u32) -> i32 {
   let values = array<i32, 9>(${WGSL_CX});
@@ -1395,8 +1412,14 @@ fn pack_rgba(red: f32, green: f32, blue: f32) -> u32 {
 fn segment_distance(point: vec2<f32>, start: vec2<f32>, finish: vec2<f32>) -> f32 {
   let segment = finish - start;
   let length_squared = dot(segment, segment);
-  let position = select(0.0, clamp(dot(point - start, segment) / length_squared, 0.0, 1.0), length_squared > 0.0);
+  let position = segment_progress(point, start, finish);
   return distance(point, start + position * segment);
+}
+
+fn segment_progress(point: vec2<f32>, start: vec2<f32>, finish: vec2<f32>) -> f32 {
+  let segment = finish - start;
+  let length_squared = dot(segment, segment);
+  return select(0.0, clamp(dot(point - start, segment) / length_squared, 0.0, 1.0), length_squared > 0.0);
 }
 
 @compute @workgroup_size(${WORKGROUP_SIZE})
@@ -1418,18 +1441,37 @@ fn render_vorticity(@builtin(global_invocation_id) invocation: vec3<u32>) {
     let vorticity = 0.5 * (right.z - left.z - above.y + below.y);
     normalised = clamp(vorticity * cylinder_diameter() / lattice_speed(), -2.0, 2.0);
   }
-  let amount = abs(normalised) / 2.0;
+  var amount = pow(abs(normalised) / 2.0, 0.72);
+  if (encoding_focus() == 1u) { amount *= 0.28; }
   let target_colour = select(vec3<f32>(221.0, 107.0, 32.0), vec3<f32>(43.0, 108.0, 176.0), normalised < 0.0);
   var colour = mix(vec3<f32>(23.0, 26.0, 31.0), target_colour, amount);
   if (tracers_enabled()) {
     let point = vec2<f32>(f32(x) + 0.5, f32(y) + 0.5);
     var nearest = 2.0;
+    var nearest_direction_emphasis = 1.0;
     for (var tracer = 0u; tracer < ${TRACER_COUNT}u; tracer += 1u) {
       let state = tracer_states[tracer];
-      nearest = min(nearest, segment_distance(point, state.zw, state.xy));
+      let distance_to_tracer = segment_distance(point, state.zw, state.xy);
+      if (distance_to_tracer < nearest) {
+        nearest = distance_to_tracer;
+        nearest_direction_emphasis = ${WEBGPU_TRACER_TAIL_EMPHASIS}
+          + ${1 - WEBGPU_TRACER_TAIL_EMPHASIS} * segment_progress(point, state.zw, state.xy);
+      }
     }
-    if (nearest < 0.8) {
-      colour = mix(colour, vec3<f32>(245.0, 247.0, 250.0), 0.75 * (1.0 - nearest / 0.8));
+    let tracer_emphasis = select(1.0, 0.2, encoding_focus() == 2u);
+    if (nearest < 1.35) {
+      var halo_colour = select(
+        vec3<f32>(246.0, 173.0, 85.0),
+        vec3<f32>(99.0, 179.0, 237.0),
+        normalised < 0.0,
+      );
+      if (abs(normalised) < 0.08) { halo_colour = vec3<f32>(203.0, 213.0, 224.0); }
+      let halo_opacity = 0.68 * (1.0 - nearest / 1.35) * tracer_emphasis * nearest_direction_emphasis;
+      colour = mix(colour, halo_colour, halo_opacity);
+    }
+    if (nearest < 0.52) {
+      let core_opacity = 0.92 * (1.0 - nearest / 0.52) * tracer_emphasis * nearest_direction_emphasis;
+      colour = mix(colour, vec3<f32>(245.0, 247.0, 250.0), core_opacity);
     }
   }
   render_pixels[cell] = pack_rgba(colour.x, colour.y, colour.z);

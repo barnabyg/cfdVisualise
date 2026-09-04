@@ -9,6 +9,7 @@ import {
   type EngineCommand,
   type EngineEvent,
   type EngineSummary,
+  type WakeEncodingFocus,
 } from "./protocol.js";
 import { WebGpuWakeSimulation } from "./webgpu-wake-simulation.js";
 
@@ -35,6 +36,7 @@ let playback: "playing" | "paused" = "paused";
 let targetPlaybackRate: number = WEBGPU_PRODUCTION_TIER.defaultPlaybackRate;
 let achievedPlaybackRate = 0;
 let tracersEnabled = true;
+let encodingFocus: WakeEncodingFocus = "combined";
 let timer: ReturnType<typeof setTimeout> | undefined;
 let lastAdvanceAt = performance.now();
 let lastAdvanceDuration = 0;
@@ -112,6 +114,10 @@ async function handleCommand(data: EngineCommand): Promise<void> {
       await presentPendingFrame();
       emitSummary();
       break;
+    case "set-encoding-focus":
+      encodingFocus = data.focus;
+      await presentPendingFrame();
+      break;
     case "dispose":
       pause();
       await simulation.dispose();
@@ -152,6 +158,7 @@ async function initialise(
   resizeRenderCanvas(command.viewport);
   playback = "paused";
   tracersEnabled = !command.reducedMotion;
+  encodingFocus = command.encodingFocus;
   targetPlaybackRate = WEBGPU_PRODUCTION_TIER.defaultPlaybackRate;
   achievedPlaybackRate = 0;
   resetPendingFrame();
@@ -226,7 +233,11 @@ function resetPendingFrame(): void {
 
 async function renderFrame(_flowThroughIncrement: number): Promise<void> {
   if (simulation === undefined) return;
-  const frame = await simulation.renderFrame(_flowThroughIncrement, tracersEnabled);
+  const frame = await simulation.renderFrame(
+    _flowThroughIncrement,
+    tracersEnabled,
+    encodingFocus,
+  );
   if (fieldCanvas === undefined || fieldContext === undefined) {
     throw new Error("The WebGPU worker frame buffer is unavailable.");
   }
