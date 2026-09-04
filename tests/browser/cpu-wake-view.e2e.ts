@@ -94,6 +94,22 @@ test("production CPU Worker renders, resizes, rejects stale events, and disposes
   await page.setViewportSize({ width: 980, height: 760 });
   await expect.poll(() => wake.evaluate((canvas) => (canvas as HTMLCanvasElement).width)).not.toBe(before);
 
+  await page.setViewportSize({ width: 480, height: 900 });
+  await expect.poll(() => encodingKey.evaluate((element) => ({
+    position: getComputedStyle(element).position,
+    narrow: matchMedia("(max-width: 620px)").matches,
+  }))).toEqual({ position: "static", narrow: true });
+  const [narrowWakeBounds, narrowKeyBounds] = await Promise.all([
+    wake.boundingBox(),
+    encodingKey.boundingBox(),
+  ]);
+  expect(narrowWakeBounds).not.toBeNull();
+  expect(narrowKeyBounds).not.toBeNull();
+  expect(narrowKeyBounds!.y).toBeGreaterThanOrEqual(
+    narrowWakeBounds!.y + narrowWakeBounds!.height,
+  );
+  await page.setViewportSize({ width: 980, height: 760 });
+
   await page.getByRole("button", { name: /start guided experiment/i }).focus();
   await page.keyboard.press("Enter");
   await expect(page.getByText("playing", { exact: true })).toBeVisible();

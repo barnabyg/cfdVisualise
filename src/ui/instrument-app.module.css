@@ -68,5 +68,8 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .comparison dt { color: #9facc0; font-size: .75rem; }
 .comparison dd { margin: 3px 0 0; font-weight: 700; }
 @media (max-width: 900px) { .instrument { grid-template-columns: 1fr; } .header { align-items: flex-start; flex-direction: column; } }
-@media (max-width: 620px) { .comparisonGrid { grid-template-columns: 1fr; } }
+@media (max-width: 620px) {
+  .comparisonGrid { grid-template-columns: 1fr; }
+  .encodingKey { position: static; width: auto; margin-top: 8px; }
+}
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
