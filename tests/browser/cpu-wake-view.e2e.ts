@@ -98,14 +98,17 @@ test("production CPU Worker renders, resizes, rejects stale events, and disposes
   await expect.poll(() => encodingKey.evaluate((element) => ({
     position: getComputedStyle(element).position,
     narrow: matchMedia("(max-width: 620px)").matches,
-  }))).toEqual({ position: "static", narrow: true });
+  }))).toEqual({ position: "absolute", narrow: true });
   const [narrowWakeBounds, narrowKeyBounds] = await Promise.all([
     wake.boundingBox(),
     encodingKey.boundingBox(),
   ]);
   expect(narrowWakeBounds).not.toBeNull();
   expect(narrowKeyBounds).not.toBeNull();
-  expect(narrowKeyBounds!.y).toBeGreaterThanOrEqual(
+  expect(narrowKeyBounds!.y).toBeGreaterThan(
+    narrowWakeBounds!.y + narrowWakeBounds!.height * 0.55,
+  );
+  expect(narrowKeyBounds!.y + narrowKeyBounds!.height).toBeLessThanOrEqual(
     narrowWakeBounds!.y + narrowWakeBounds!.height,
   );
   await page.setViewportSize({ width: 980, height: 760 });
