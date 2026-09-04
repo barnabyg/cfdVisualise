@@ -51,4 +51,101 @@ describe("wake rendering", () => {
     ).toBe(true);
     expect(renderer.captureStill(field, true)).toMatchObject({ type: "image/bmp" });
   });
+
+  it("links neutral tracer cores to the local signed vorticity with a coloured halo", () => {
+    const positiveField = rotatingField(1);
+    const negativeField = rotatingField(-1);
+
+    const positiveWithoutTracers = renderedFrame(positiveField, false);
+    const positiveWithTracers = renderedFrame(positiveField, true);
+    const negativeWithoutTracers = renderedFrame(negativeField, false);
+    const negativeWithTracers = renderedFrame(negativeField, true);
+
+    expect(hasSignedHalo(positiveWithoutTracers.pixels, positiveWithTracers.pixels, "positive")).toBe(true);
+    expect(hasSignedHalo(negativeWithoutTracers.pixels, negativeWithTracers.pixels, "negative")).toBe(true);
+    expect(hasNeutralCore(positiveWithoutTracers.pixels, positiveWithTracers.pixels)).toBe(true);
+
+    const combined = renderedFrame(positiveField, false, "combined");
+    const motionFocused = renderedFrame(positiveField, false, "motion");
+    const sample = (8 * positiveField.width + 20) * 4;
+    const neutral = [23, 26, 31] as const;
+    expect(colourDistance(motionFocused.pixels, sample, neutral)).toBeLessThan(
+      colourDistance(combined.pixels, sample, neutral),
+    );
+  });
 });
+
+type TestField = Parameters<WakeRasterRenderer["render"]>[0];
+type TestFocus = "combined" | "motion" | "rotation";
+
+function rotatingField(sign: 1 | -1): TestField {
+  const width = 32;
+  const height = 16;
+  const velocityY = new Float64Array(width * height);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      velocityY[y * width + x] = sign * x * 0.02;
+    }
+  }
+  return {
+    width,
+    height,
+    cylinderDiameter: 4,
+    cylinderCenterX: 8,
+    cylinderCenterY: 8,
+    latticeSpeed: 0.08,
+    solid: new Uint8Array(width * height),
+    velocityX: new Float64Array(width * height).fill(0.08),
+    velocityY,
+  };
+}
+
+function renderedFrame(field: TestField, tracers: boolean, focus: TestFocus = "combined") {
+  const renderer = new WakeRasterRenderer(18);
+  let frame;
+  for (let index = 0; index < 4; index += 1) {
+    frame = renderer.render(field, 0.08, tracers, focus);
+  }
+  if (frame === undefined) throw new Error("Expected a rendered frame.");
+  return frame;
+}
+
+function hasSignedHalo(
+  base: Uint8ClampedArray,
+  rendered: Uint8ClampedArray,
+  sign: "positive" | "negative",
+): boolean {
+  for (let index = 0; index < rendered.length; index += 4) {
+    const redChange = rendered[index]! - base[index]!;
+    const blueChange = rendered[index + 2]! - base[index + 2]!;
+    if (sign === "positive" && redChange > 20 && redChange > blueChange * 1.5) return true;
+    if (sign === "negative" && blueChange > 20 && blueChange > redChange * 1.5) return true;
+  }
+  return false;
+}
+
+function hasNeutralCore(base: Uint8ClampedArray, pixels: Uint8ClampedArray): boolean {
+  for (let index = 0; index < pixels.length; index += 4) {
+    if (
+      pixels[index]! > base[index]!
+      && pixels[index]! >= 235
+      && pixels[index + 1]! >= 235
+      && pixels[index + 2]! >= 235
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function colourDistance(
+  pixels: Uint8ClampedArray,
+  offset: number,
+  target: readonly [number, number, number],
+): number {
+  return Math.hypot(
+    pixels[offset]! - target[0],
+    pixels[offset + 1]! - target[1],
+    pixels[offset + 2]! - target[2],
+  );
+}

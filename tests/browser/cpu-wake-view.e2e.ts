@@ -49,6 +49,16 @@ test("production CPU Worker renders, resizes, rejects stale events, and disposes
 
   const wake = page.getByRole("img", { name: /full-domain wake view/i });
   await expect(wake).toBeVisible();
+  const encodingKey = page.getByRole("region", { name: "Wake encoding key" });
+  await expect(encodingKey.getByText("Motion", { exact: true })).toBeVisible();
+  await expect(encodingKey.getByText("Rotation", { exact: true })).toBeVisible();
+  await expect(encodingKey.getByText(/neutral \/ zero/i)).toBeVisible();
+  const motionEncoding = encodingKey.getByRole("button", { name: /motion.*passive tracer/i });
+  await motionEncoding.focus();
+  await page.keyboard.press("Enter");
+  await expect(motionEncoding).toHaveAttribute("aria-pressed", "true");
+  await encodingKey.getByRole("button", { name: /rotation.*signed normalized vorticity/i }).click();
+  await expect.poll(() => auditedCommands).toContain("set-encoding-focus");
   await expect(page.getByText(/CPU balanced · cpu-reference/)).toBeVisible({
     timeout: 20_000,
   });

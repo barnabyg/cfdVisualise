@@ -186,13 +186,13 @@ test("WebGPU boundary alternatives remain finite", async ({ page }, testInfo) =>
   }
 });
 
-test("WebGPU passive tracers are composited by the GPU renderer", async ({
+test("WebGPU combines tracers with vorticity and honours encoding focus", async ({
   page,
 }, testInfo) => {
   test.skip(testInfo.project.name !== "chrome", "WebGPU rendering uses software-backed Chrome.");
   await page.goto("http://127.0.0.1:4174/");
 
-  const changedPixelCount = await page.evaluate(async () => {
+  const rendering = await page.evaluate(async () => {
     const backendPath = "/src/validation/webgpu-backend.ts";
     const referencePath = "/src/validation/webgpu-reference.ts";
     const runtimePath = "/src/validation/webgpu-runtime.ts";
@@ -220,24 +220,47 @@ test("WebGPU passive tracers are composited by the GPU renderer", async ({
       backendResult.device,
       definition,
     );
+    await execution.execute({
+      type: "advance-fixed-steps",
+      stepCount: 540,
+      reynoldsNumber: source.reynoldsNumber,
+    });
     const withoutTracers = await execution.renderFrame(0, false);
     const withTracers = await execution.renderFrame(0.1, true);
-    let changed = 0;
-    for (let index = 0; index < withTracers.pixels.length; index += 4) {
-      if (
-        withTracers.pixels[index] !== withoutTracers.pixels[index]
-        || withTracers.pixels[index + 1] !== withoutTracers.pixels[index + 1]
-        || withTracers.pixels[index + 2] !== withoutTracers.pixels[index + 2]
-      ) {
-        changed += 1;
+    const motionFocused = await execution.renderFrame(0, true, "motion");
+    const rotationFocused = await execution.renderFrame(0, true, "rotation");
+    const pixelDifference = (
+      left: Uint8ClampedArray,
+      right: Uint8ClampedArray,
+    ) => {
+      let changed = 0;
+      let total = 0;
+      for (let index = 0; index < left.length; index += 4) {
+        const difference = Math.abs(left[index]! - right[index]!)
+          + Math.abs(left[index + 1]! - right[index + 1]!)
+          + Math.abs(left[index + 2]! - right[index + 2]!);
+        if (difference > 0) changed += 1;
+        total += difference;
       }
-    }
+      return { changed, total };
+    };
+    const combinedTracerDifference = pixelDifference(withoutTracers.pixels, withTracers.pixels);
+    const rotationTracerDifference = pixelDifference(withoutTracers.pixels, rotationFocused.pixels);
+    const focusDifference = pixelDifference(withTracers.pixels, motionFocused.pixels);
     await execution.execute({ type: "dispose" });
     backendResult.device.destroy();
-    return changed;
+    return {
+      combinedTracerDifference,
+      rotationTracerDifference,
+      focusDifference,
+    };
   });
 
-  expect(changedPixelCount).toBeGreaterThan(0);
+  expect(rendering.combinedTracerDifference.changed).toBeGreaterThan(0);
+  expect(rendering.rotationTracerDifference.total).toBeLessThan(
+    rendering.combinedTracerDifference.total,
+  );
+  expect(rendering.focusDifference.changed).toBeGreaterThan(0);
 });
 
 test("WebGPU tracer respawns do not draw domain-spanning segments", async ({

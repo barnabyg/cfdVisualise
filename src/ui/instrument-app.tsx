@@ -4,7 +4,11 @@ import {
   coupledPhysicalIntervals,
   type PhysicalScenario,
 } from "../engine/physical-scenario.js";
-import type { EngineBaseline, EngineSummary } from "../engine/protocol.js";
+import type {
+  EngineBaseline,
+  EngineSummary,
+  WakeEncodingFocus,
+} from "../engine/protocol.js";
 import styles from "./instrument-app.module.css";
 import { TierEvidencePanel } from "./tier-evidence-panel.js";
 import { useWakeEngine, type WakeWorkerPort } from "./use-wake-engine.js";
@@ -130,18 +134,20 @@ export function InstrumentApp({ workerFactory, reducedMotion }: InstrumentAppPro
               <p class={styles.eyebrow}>Full-domain view</p>
               <h2 id="wake-title">Wake view</h2>
             </div>
-            <div class={styles.legend} aria-label="Signed normalized vorticity legend">
-              <span><i class={styles.clockwise} />↻ clockwise</span>
-              <span>ωD/U</span>
-              <span><i class={styles.counterclockwise} />↺ counterclockwise</span>
-            </div>
           </div>
-          <canvas
-            ref={engine.canvasRef}
-            class={styles.canvas}
-            role="img"
-            aria-label="Full-domain wake view with a cylinder, x over D and y over D axes, signed normalized vorticity, and passive tracers"
-          />
+          <div class={styles.wakeStage}>
+            <canvas
+              ref={engine.canvasRef}
+              class={styles.canvas}
+              role="img"
+              aria-label="Full-domain wake view with a cylinder, x over D and y over D axes, signed normalized vorticity, and passive tracers"
+            />
+            <WakeEncodingKey
+              focus={engine.encodingFocus}
+              tracersEnabled={engine.summary.tracersEnabled}
+              onFocus={engine.setEncodingFocus}
+            />
+          </div>
           <PlaybackControls engine={engine} />
         </section>
 
@@ -244,6 +250,71 @@ export function InstrumentApp({ workerFactory, reducedMotion }: InstrumentAppPro
         </section>
       )}
     </main>
+  );
+}
+
+function WakeEncodingKey({
+  focus,
+  tracersEnabled,
+  onFocus,
+}: {
+  readonly focus: WakeEncodingFocus;
+  readonly tracersEnabled: boolean;
+  readonly onFocus: (focus: WakeEncodingFocus) => void;
+}) {
+  const toggle = (next: Exclude<WakeEncodingFocus, "combined">) => {
+    onFocus(focus === next ? "combined" : next);
+  };
+  const status = focus === "combined"
+    ? "Showing motion and rotation together"
+    : focus === "motion"
+      ? "Motion highlighted; rotation softened"
+      : "Rotation highlighted; motion softened";
+
+  return (
+    <section class={styles.encodingKey} aria-label="Wake encoding key">
+      <div class={styles.encodingKeyHeading}>
+        <strong>How to read the wake</strong>
+        <span>select to highlight</span>
+      </div>
+      <button
+        type="button"
+        class={styles.encodingButton}
+        aria-label="Motion — passive tracer path and direction"
+        aria-pressed={focus === "motion"}
+        onClick={() => toggle("motion")}
+      >
+        <span class={styles.motionGlyph} aria-hidden="true">
+          <i class={styles.motionHalo} />
+          <i class={styles.motionCore} />
+          <b>→</b>
+        </span>
+        <span class={styles.encodingCopy}>
+          <strong>Motion</strong>
+          <span>Passive tracer path + direction</span>
+          <small>Neutral core; local rotation-coloured edge</small>
+        </span>
+      </button>
+      <button
+        type="button"
+        class={styles.encodingButton}
+        aria-label="Rotation — signed normalized vorticity"
+        aria-pressed={focus === "rotation"}
+        onClick={() => toggle("rotation")}
+      >
+        <span class={styles.rotationGlyph} aria-hidden="true">
+          <i />
+        </span>
+        <span class={styles.encodingCopy}>
+          <strong>Rotation</strong>
+          <span>Signed normalized vorticity · ωD/U</span>
+          <small>↻ clockwise · neutral / zero · ↺ counter-clockwise</small>
+        </span>
+      </button>
+      <p class={styles.encodingStatus} aria-live="polite">
+        {status}. {!tracersEnabled && "Tracers are off; the key remains a static explanation."}
+      </p>
+    </section>
   );
 }
 

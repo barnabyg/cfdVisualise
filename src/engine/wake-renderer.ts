@@ -1,11 +1,15 @@
 import type { CpuFlowFieldView } from "../validation/cpu-reference-backend.js";
-import type { CanvasViewport } from "./protocol.js";
+import type { CanvasViewport, WakeEncodingFocus } from "./protocol.js";
 
 export const FIXED_NORMALISED_VORTICITY_LIMIT = 2;
 
 const NEGATIVE = [43, 108, 176] as const;
 const NEUTRAL = [23, 26, 31] as const;
 const POSITIVE = [221, 107, 32] as const;
+const NEGATIVE_TRACER_HALO = [99, 179, 237] as const;
+const NEUTRAL_TRACER_HALO = [203, 213, 224] as const;
+const POSITIVE_TRACER_HALO = [246, 173, 85] as const;
+const TRACER_CORE = [245, 247, 250] as const;
 const CYLINDER = [232, 235, 238] as const;
 const TRACER_TARGET_COUNT = 270;
 
@@ -63,6 +67,7 @@ export class WakeRasterRenderer {
     field: CpuFlowFieldView,
     flowThroughIncrement: number,
     tracersEnabled: boolean,
+    encodingFocus: WakeEncodingFocus = "combined",
   ): RasterWakeFrame | undefined {
     this.advanceCount += 1;
     this.advanceTracers(field, flowThroughIncrement, tracersEnabled);
@@ -70,13 +75,17 @@ export class WakeRasterRenderer {
       return undefined;
     }
     const started = performance.now();
-    const frame = this.composeFrame(field, tracersEnabled);
+    const frame = this.composeFrame(field, tracersEnabled, encodingFocus);
     if (performance.now() - started > 24) this.loadPolicy.degrade();
     return frame;
   }
 
-  public captureStill(field: CpuFlowFieldView, tracersEnabled: boolean): Blob {
-    return encodeBitmap(this.composeFrame(field, tracersEnabled));
+  public captureStill(
+    field: CpuFlowFieldView,
+    tracersEnabled: boolean,
+    encodingFocus: WakeEncodingFocus = "combined",
+  ): Blob {
+    return encodeBitmap(this.composeFrame(field, tracersEnabled, encodingFocus));
   }
 
   public clearTracers(): void {
@@ -97,10 +106,14 @@ export class WakeRasterRenderer {
     advanceTracerPositions(this.tracers, field, flowThroughIncrement);
   }
 
-  private composeFrame(field: CpuFlowFieldView, tracersEnabled: boolean): RasterWakeFrame {
-    const frame = rasteriseWakeField(field);
+  private composeFrame(
+    field: CpuFlowFieldView,
+    tracersEnabled: boolean,
+    encodingFocus: WakeEncodingFocus,
+  ): RasterWakeFrame {
+    const frame = rasteriseWakeField(field, encodingFocus);
     drawRasterCylinder(frame, field);
-    if (tracersEnabled) drawRasterTracerTails(frame, this.tracers);
+    if (tracersEnabled) drawRasterTracerTails(frame, this.tracers, field, encodingFocus);
     drawRasterDomainContext(frame);
     return frame;
   }
@@ -149,6 +162,7 @@ export class WakeRenderer {
     field: CpuFlowFieldView,
     flowThroughIncrement: number,
     tracersEnabled: boolean,
+    encodingFocus: WakeEncodingFocus = "combined",
   ): void {
     this.advanceCount += 1;
     const load = this.loadPolicy.state();
@@ -156,8 +170,8 @@ export class WakeRenderer {
     if (this.advanceCount % load.renderEveryNthAdvance !== 0) return;
 
     const started = performance.now();
-    this.drawField(field);
-    if (tracersEnabled) this.drawTracers(field);
+    this.drawField(field, encodingFocus);
+    if (tracersEnabled) this.drawTracers(field, encodingFocus);
     this.drawDomainContext(field);
     if (performance.now() - started > 24) this.loadPolicy.degrade();
   }
@@ -174,12 +188,12 @@ export class WakeRenderer {
     return this.canvas.convertToBlob({ type: "image/png" });
   }
 
-  private drawField(field: CpuFlowFieldView): void {
+  private drawField(field: CpuFlowFieldView, encodingFocus: WakeEncodingFocus): void {
     if (this.fieldCanvas.width !== field.width || this.fieldCanvas.height !== field.height) {
       this.fieldCanvas.width = field.width;
       this.fieldCanvas.height = field.height;
     }
-    const frame = rasteriseWakeField(field);
+    const frame = rasteriseWakeField(field, encodingFocus);
     const image = this.fieldContext.createImageData(field.width, field.height);
     image.data.set(frame.pixels);
     this.fieldContext.putImageData(image, 0, 0);
@@ -198,15 +212,25 @@ export class WakeRenderer {
     advanceTracerPositions(this.tracers, field, flowThroughIncrement);
   }
 
-  private drawTracers(field: CpuFlowFieldView): void {
+  private drawTracers(field: CpuFlowFieldView, encodingFocus: WakeEncodingFocus): void {
     const scaleX = this.canvas.width / field.width;
     const scaleY = this.canvas.height / field.height;
-    this.context.lineWidth = Math.max(1, this.viewport.pixelRatio);
+    const focusOpacity = encodingFocus === "rotation" ? 0.2 : 1;
+    this.context.lineCap = "round";
     for (const tracer of this.tracers) {
       for (let index = 1; index < tracer.tail.length; index += 1) {
         const previous = tracer.tail[index - 1]!;
         const current = tracer.tail[index]!;
-        this.context.strokeStyle = `rgba(245, 247, 250, ${index / tracer.tail.length / 2})`;
+        const opacity = tracerOpacity(index, tracer.tail.length) * focusOpacity;
+        const halo = tracerHaloRgb(normalisedVorticityAtSegment(field, previous, current));
+        this.context.lineWidth = Math.max(3, 4 * this.viewport.pixelRatio);
+        this.context.strokeStyle = `rgba(${halo[0]}, ${halo[1]}, ${halo[2]}, ${opacity * 0.82})`;
+        this.context.beginPath();
+        this.context.moveTo(previous.x * scaleX, previous.y * scaleY);
+        this.context.lineTo(current.x * scaleX, current.y * scaleY);
+        this.context.stroke();
+        this.context.lineWidth = Math.max(1.25, 1.4 * this.viewport.pixelRatio);
+        this.context.strokeStyle = `rgba(${TRACER_CORE[0]}, ${TRACER_CORE[1]}, ${TRACER_CORE[2]}, ${opacity})`;
         this.context.beginPath();
         this.context.moveTo(previous.x * scaleX, previous.y * scaleY);
         this.context.lineTo(current.x * scaleX, current.y * scaleY);
@@ -282,7 +306,10 @@ function advanceTracerPositions(
     }
 }
 
-export function rasteriseWakeField(field: CpuFlowFieldView): RasterWakeFrame {
+export function rasteriseWakeField(
+  field: CpuFlowFieldView,
+  encodingFocus: WakeEncodingFocus = "combined",
+): RasterWakeFrame {
   const pixels = new Uint8ClampedArray(field.width * field.height * 4);
   for (let y = 0; y < field.height; y += 1) {
     for (let x = 0; x < field.width; x += 1) {
@@ -291,7 +318,10 @@ export function rasteriseWakeField(field: CpuFlowFieldView): RasterWakeFrame {
       const colour =
         field.solid[cell] === 1
           ? NEUTRAL
-          : normalisedVorticityRgb(normalisedVorticity(field, x, y));
+          : normalisedVorticityRgb(
+              normalisedVorticity(field, x, y),
+              encodingFocus === "motion" ? 0.28 : 1,
+            );
       pixels[pixel] = colour[0];
       pixels[pixel + 1] = colour[1];
       pixels[pixel + 2] = colour[2];
@@ -351,14 +381,35 @@ function paintPixel(
   pixels[offset + 3] = 255;
 }
 
-function drawRasterTracerTails(frame: RasterWakeFrame, tracers: readonly Tracer[]): void {
+function drawRasterTracerTails(
+  frame: RasterWakeFrame,
+  tracers: readonly Tracer[],
+  field: CpuFlowFieldView,
+  encodingFocus: WakeEncodingFocus,
+): void {
+  const focusOpacity = encodingFocus === "rotation" ? 0.2 : 1;
+  for (const tracer of tracers) {
+    for (let index = 1; index < tracer.tail.length; index += 1) {
+      const previous = tracer.tail[index - 1]!;
+      const current = tracer.tail[index]!;
+      paintLine(
+        frame,
+        previous,
+        current,
+        tracerOpacity(index, tracer.tail.length) * focusOpacity * 0.82,
+        tracerHaloRgb(normalisedVorticityAtSegment(field, previous, current)),
+        1,
+      );
+    }
+  }
   for (const tracer of tracers) {
     for (let index = 1; index < tracer.tail.length; index += 1) {
       paintLine(
         frame,
         tracer.tail[index - 1]!,
         tracer.tail[index]!,
-        index / tracer.tail.length / 2,
+        tracerOpacity(index, tracer.tail.length) * focusOpacity,
+        TRACER_CORE,
       );
     }
   }
@@ -369,19 +420,29 @@ function paintLine(
   from: { readonly x: number; readonly y: number },
   to: { readonly x: number; readonly y: number },
   opacity: number,
+  colour: readonly [number, number, number] = TRACER_CORE,
+  radius = 0,
 ): void {
   const distance = Math.max(Math.abs(to.x - from.x), Math.abs(to.y - from.y), 1);
   for (let step = 0; step <= distance; step += 1) {
     const amount = step / distance;
-    blendPixel(
-      frame.pixels,
-      frame.width,
-      frame.height,
-      from.x + (to.x - from.x) * amount,
-      from.y + (to.y - from.y) * amount,
-      [245, 247, 250],
-      opacity,
-    );
+    const x = from.x + (to.x - from.x) * amount;
+    const y = from.y + (to.y - from.y) * amount;
+    for (let offsetY = -radius; offsetY <= radius; offsetY += 1) {
+      for (let offsetX = -radius; offsetX <= radius; offsetX += 1) {
+        const distance = Math.hypot(offsetX, offsetY);
+        if (distance > radius + 0.1) continue;
+        blendPixel(
+          frame.pixels,
+          frame.width,
+          frame.height,
+          x + offsetX,
+          y + offsetY,
+          colour,
+          opacity / Math.max(1, distance * 1.35),
+        );
+      }
+    }
   }
 }
 
@@ -500,13 +561,36 @@ function normalisedVorticity(field: CpuFlowFieldView, x: number, y: number): num
   return (vorticity * field.cylinderDiameter) / field.latticeSpeed;
 }
 
-function normalisedVorticityRgb(value: number): readonly [number, number, number] {
+function normalisedVorticityAtSegment(
+  field: CpuFlowFieldView,
+  from: { readonly x: number; readonly y: number },
+  to: { readonly x: number; readonly y: number },
+): number {
+  return normalisedVorticity(field, Math.round((from.x + to.x) / 2), Math.round((from.y + to.y) / 2));
+}
+
+function tracerHaloRgb(value: number): readonly [number, number, number] {
+  if (Math.abs(value) < 0.08) return NEUTRAL_TRACER_HALO;
+  return value < 0 ? NEGATIVE_TRACER_HALO : POSITIVE_TRACER_HALO;
+}
+
+function tracerOpacity(index: number, tailLength: number): number {
+  return 0.18 + 0.64 * (index / tailLength);
+}
+
+function normalisedVorticityRgb(
+  value: number,
+  emphasis = 1,
+): readonly [number, number, number] {
   if (value === 0) return NEUTRAL;
   const limited = Math.max(
     -FIXED_NORMALISED_VORTICITY_LIMIT,
     Math.min(FIXED_NORMALISED_VORTICITY_LIMIT, value),
   );
-  const amount = Math.abs(limited) / FIXED_NORMALISED_VORTICITY_LIMIT;
+  const amount = Math.pow(
+    Math.abs(limited) / FIXED_NORMALISED_VORTICITY_LIMIT,
+    0.72,
+  ) * emphasis;
   return interpolate(NEUTRAL, limited < 0 ? NEGATIVE : POSITIVE, amount);
 }
 

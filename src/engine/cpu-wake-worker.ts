@@ -5,6 +5,7 @@ import {
   type EngineCommand,
   type EngineEvent,
   type EngineSummary,
+  type WakeEncodingFocus,
 } from "./protocol.js";
 import { WakeRasterRenderer, WakeRenderer } from "./wake-renderer.js";
 
@@ -28,6 +29,7 @@ let playback: "playing" | "paused" = "paused";
 let targetPlaybackRate: number = CPU_PRODUCTION_TIER.defaultPlaybackRate;
 let achievedPlaybackRate = 0;
 let tracersEnabled = true;
+let encodingFocus: WakeEncodingFocus = "combined";
 let timer: ReturnType<typeof setTimeout> | undefined;
 let lastAdvanceAt = performance.now();
 let lastSummaryAt = 0;
@@ -108,6 +110,10 @@ scope.onmessage = ({ data }) => {
         render(0);
         emitSummary(true);
         break;
+      case "set-encoding-focus":
+        encodingFocus = data.focus;
+        render(0);
+        break;
       case "dispose":
         pause();
         sessionId = undefined;
@@ -144,6 +150,7 @@ function initialise(command: Extract<EngineCommand, { readonly type: "initialise
       : undefined;
   playback = "paused";
   tracersEnabled = !command.reducedMotion;
+  encodingFocus = command.encodingFocus;
   targetPlaybackRate = CPU_PRODUCTION_TIER.defaultPlaybackRate;
   achievedPlaybackRate = 0;
   render(0);
@@ -193,11 +200,16 @@ function render(flowThroughIncrement: number): void {
   if (simulation === undefined) return;
   const field = simulation.flowField();
   if (renderer !== undefined) {
-    renderer.render(field, flowThroughIncrement, tracersEnabled);
+    renderer.render(field, flowThroughIncrement, tracersEnabled, encodingFocus);
     return;
   }
   if (rasterRenderer !== undefined) {
-    const frame = rasterRenderer.render(field, flowThroughIncrement, tracersEnabled);
+    const frame = rasterRenderer.render(
+      field,
+      flowThroughIncrement,
+      tracersEnabled,
+      encodingFocus,
+    );
     if (frame === undefined) return;
     emit(
       { type: "frame", ...frame },
@@ -224,7 +236,11 @@ async function captureStill(): Promise<void> {
     const image =
       renderer !== undefined
         ? await renderer.captureStill()
-        : rasterRenderer?.captureStill(simulation.flowField(), tracersEnabled);
+        : rasterRenderer?.captureStill(
+            simulation.flowField(),
+            tracersEnabled,
+            encodingFocus,
+          );
     if (image === undefined) throw new Error("The Worker renderer is unavailable.");
     emit({ type: "still", image, summary: currentEngineSummary() });
   } catch (error) {

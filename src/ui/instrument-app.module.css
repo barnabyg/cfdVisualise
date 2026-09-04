@@ -7,12 +7,27 @@
 .wakePanel, .controls, .guide, .failure { border: 1px solid #2e3746; border-radius: 16px; background: #131821; box-shadow: 0 18px 50px rgba(0,0,0,.24); }
 .wakePanel { padding: clamp(12px, 1.5vw, 16px); }
 .controls { padding: 12px; }
-.canvas { display: block; width: min(100%, 660px); aspect-ratio: 21 / 17; margin: 12px auto; border-radius: 10px; background: #171a1f; }
-.legend { display: flex; gap: 10px; align-items: center; font-size: .78rem; color: #cbd5e0; }
-.legend span { display: inline-flex; gap: 5px; align-items: center; }
-.clockwise, .counterclockwise { width: 13px; height: 13px; border-radius: 50%; }
-.clockwise { background: #2b6cb0; }
-.counterclockwise { background: #dd6b20; }
+.wakeStage { position: relative; width: min(100%, 660px); margin: 12px auto; }
+.canvas { display: block; width: 100%; aspect-ratio: 21 / 17; border-radius: 10px; background: #171a1f; }
+.encodingKey { position: absolute; left: 12px; bottom: 12px; width: min(328px, calc(100% - 24px)); padding: 10px; border: 1px solid rgba(203,213,224,.28); border-radius: 11px; background: rgba(9,13,19,.88); box-shadow: 0 8px 28px rgba(0,0,0,.35); backdrop-filter: blur(7px); }
+.encodingKeyHeading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 7px; }
+.encodingKeyHeading strong { font-size: .78rem; letter-spacing: .02em; }
+.encodingKeyHeading span, .encodingStatus { color: #aeb9c9; font-size: .68rem; }
+.encodingButton { display: grid; grid-template-columns: 52px 1fr; align-items: center; gap: 9px; width: 100%; min-height: 48px; margin-top: 5px; padding: 6px 7px; border-color: transparent; background: rgba(255,255,255,.035); text-align: left; }
+.encodingButton:hover { border-color: rgba(159,172,192,.5); background: rgba(255,255,255,.075); }
+.encodingButton[aria-pressed="true"] { border-color: #f6ad55; background: rgba(246,173,85,.13); box-shadow: inset 3px 0 #f6ad55; }
+.encodingCopy { display: grid; gap: 1px; line-height: 1.18; }
+.encodingCopy strong { color: #f7fafc; font-size: .76rem; }
+.encodingCopy span { color: #e2e8f0; font-size: .7rem; }
+.encodingCopy small { color: #aeb9c9; font-size: .62rem; }
+.motionGlyph { position: relative; display: block; width: 50px; height: 24px; }
+.motionHalo, .motionCore { position: absolute; left: 2px; right: 11px; border-radius: 999px; }
+.motionHalo { top: 8px; height: 8px; background: linear-gradient(90deg, #63b3ed 0 43%, #cbd5e0 49% 51%, #f6ad55 57% 100%); opacity: .9; filter: blur(.3px); }
+.motionCore { top: 11px; height: 2px; background: #f7fafc; box-shadow: 0 0 3px #fff; }
+.motionGlyph b { position: absolute; top: 1px; right: 0; color: #f7fafc; font-size: 1.05rem; }
+.rotationGlyph { display: flex; align-items: center; width: 50px; height: 24px; }
+.rotationGlyph i { width: 100%; height: 12px; border: 1px solid rgba(255,255,255,.32); border-radius: 999px; background: linear-gradient(90deg, #2b6cb0, #171a1f 50%, #dd6b20); box-shadow: 0 0 10px rgba(99,179,237,.12), 0 0 10px rgba(246,173,85,.1); }
+.encodingStatus { margin: 7px 2px 0; line-height: 1.25; }
 .playback { flex-wrap: wrap; justify-content: flex-start; }
 .playback label { display: inline-flex; align-items: center; gap: 6px; }
 button, select, input { font: inherit; }

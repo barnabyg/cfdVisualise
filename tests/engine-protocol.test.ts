@@ -20,6 +20,7 @@ describe("wake engine protocol", () => {
       "set-scenario",
       "set-playback-rate",
       "set-tracers-enabled",
+      "set-encoding-focus",
       "dispose",
     ]);
 

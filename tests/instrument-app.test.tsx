@@ -9,6 +9,46 @@ import type { WakeWorkerPort } from "../src/ui/use-wake-engine.js";
 
 describe("instrument app", () => {
   afterEach(cleanup);
+  it("explains and isolates the motion and rotation encodings", async () => {
+    const worker = new FakeWorker();
+    Object.defineProperty(HTMLCanvasElement.prototype, "transferControlToOffscreen", {
+      configurable: true,
+      value: () => ({}) as OffscreenCanvas,
+    });
+    vi.stubGlobal("ResizeObserver", class { public observe(): void {} public disconnect(): void {} });
+
+    render(<InstrumentApp workerFactory={() => worker} reducedMotion />);
+    await act(async () => undefined);
+
+    expect(screen.getByRole("region", { name: "Wake encoding key" })).toBeTruthy();
+    expect(screen.getByText(/neutral \/ zero/i)).toBeTruthy();
+    expect(screen.getByText(/clockwise/i)).toBeTruthy();
+    expect(screen.getByText(/counter-clockwise/i)).toBeTruthy();
+
+    const motion = screen.getByRole("button", { name: /motion.*passive tracer/i });
+    const rotation = screen.getByRole("button", { name: /rotation.*signed normalized vorticity/i });
+    fireEvent.click(motion);
+    expect(motion.getAttribute("aria-pressed")).toBe("true");
+    expect(worker.commands.at(-1)).toMatchObject({
+      type: "set-encoding-focus",
+      focus: "motion",
+    });
+
+    fireEvent.click(rotation);
+    expect(rotation.getAttribute("aria-pressed")).toBe("true");
+    expect(worker.commands.at(-1)).toMatchObject({
+      type: "set-encoding-focus",
+      focus: "rotation",
+    });
+
+    fireEvent.click(rotation);
+    expect(rotation.getAttribute("aria-pressed")).toBe("false");
+    expect(worker.commands.at(-1)).toMatchObject({
+      type: "set-encoding-focus",
+      focus: "combined",
+    });
+  });
+
   it("enables playback actions only when they are meaningful", async () => {
     const worker = new FakeWorker();
     Object.defineProperty(HTMLCanvasElement.prototype, "transferControlToOffscreen", {
@@ -115,7 +155,7 @@ describe("instrument app", () => {
     expect(screen.getByText("cpu-reference / cpu-balanced-d18 / ticket-06")).toBeTruthy();
     expect(screen.getByText(/18 cells\/D · 1\.3× default/)).toBeTruthy();
     expect(screen.getByRole("img", { name: /full-domain wake view/i })).toBeTruthy();
-    expect(screen.getAllByText(/clockwise/i)).toHaveLength(2);
+    expect(screen.getByText(/clockwise.*neutral \/ zero.*counter-clockwise/i)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /start guided experiment/i }));
     expect(worker.commands.slice(-3).map(({ type }) => type)).toEqual([
