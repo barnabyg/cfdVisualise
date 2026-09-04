@@ -6,10 +6,21 @@ import {
   createWebGpuValidationBackend,
   type WebGpuDeviceHandle,
 } from "../src/validation/webgpu-backend.js";
-import { WebGpuExecutionError } from "../src/validation/webgpu-runtime.js";
+import {
+  WebGpuExecutionError,
+  webGpuTracerDirectionEmphasis,
+} from "../src/validation/webgpu-runtime.js";
 import { STEADY_RE20_VALIDATION_SUITE } from "../src/validation/index.js";
 
 describe("WebGPU validation backend", () => {
+  it("keeps a head-to-tail brightness gradient as a static direction cue", () => {
+    expect(webGpuTracerDirectionEmphasis(0)).toBeCloseTo(0.45);
+    expect(webGpuTracerDirectionEmphasis(0.5)).toBeGreaterThan(
+      webGpuTracerDirectionEmphasis(0),
+    );
+    expect(webGpuTracerDirectionEmphasis(1)).toBe(1);
+  });
+
   it("reports an explicit unavailable state when no adapter exists", async () => {
     const result = await createWebGpuValidationBackend({
       requestAdapter: async () => null,
