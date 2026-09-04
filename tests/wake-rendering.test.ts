@@ -73,6 +73,19 @@ describe("wake rendering", () => {
       colourDistance(combined.pixels, sample, neutral),
     );
   });
+
+  it("presents an encoding-focus change even when load shedding skips the next advance", () => {
+    const renderer = new WakeRasterRenderer(18);
+    const field = rotatingField(1);
+    renderer.degrade();
+    renderer.degrade();
+
+    expect(renderer.render(field, 0, false, "combined")).toBeUndefined();
+    expect(renderer.render(field, 0, false, "motion", true)).toMatchObject({
+      width: field.width,
+      height: field.height,
+    });
+  });
 });
 
 type TestField = Parameters<WakeRasterRenderer["render"]>[0];

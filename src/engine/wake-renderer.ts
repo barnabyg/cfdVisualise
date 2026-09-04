@@ -68,10 +68,14 @@ export class WakeRasterRenderer {
     flowThroughIncrement: number,
     tracersEnabled: boolean,
     encodingFocus: WakeEncodingFocus = "combined",
+    forcePresent = false,
   ): RasterWakeFrame | undefined {
     this.advanceCount += 1;
     this.advanceTracers(field, flowThroughIncrement, tracersEnabled);
-    if (this.advanceCount % this.loadPolicy.state().renderEveryNthAdvance !== 0) {
+    if (
+      !forcePresent
+      && this.advanceCount % this.loadPolicy.state().renderEveryNthAdvance !== 0
+    ) {
       return undefined;
     }
     const started = performance.now();
@@ -90,6 +94,10 @@ export class WakeRasterRenderer {
 
   public clearTracers(): void {
     this.tracers.length = 0;
+  }
+
+  public degrade(): RenderLoadState {
+    return this.loadPolicy.degrade();
   }
 
   private advanceTracers(
@@ -163,11 +171,12 @@ export class WakeRenderer {
     flowThroughIncrement: number,
     tracersEnabled: boolean,
     encodingFocus: WakeEncodingFocus = "combined",
+    forcePresent = false,
   ): void {
     this.advanceCount += 1;
     const load = this.loadPolicy.state();
     this.advanceTracers(field, flowThroughIncrement, load.tracerDensity, tracersEnabled);
-    if (this.advanceCount % load.renderEveryNthAdvance !== 0) return;
+    if (!forcePresent && this.advanceCount % load.renderEveryNthAdvance !== 0) return;
 
     const started = performance.now();
     this.drawField(field, encodingFocus);

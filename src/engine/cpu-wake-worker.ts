@@ -112,7 +112,7 @@ scope.onmessage = ({ data }) => {
         break;
       case "set-encoding-focus":
         encodingFocus = data.focus;
-        render(0);
+        render(0, true);
         break;
       case "dispose":
         pause();
@@ -196,11 +196,17 @@ function advance(amount: number): void {
   emitSummary(playback === "paused" || now - lastSummaryAt >= 100);
 }
 
-function render(flowThroughIncrement: number): void {
+function render(flowThroughIncrement: number, forcePresent = false): void {
   if (simulation === undefined) return;
   const field = simulation.flowField();
   if (renderer !== undefined) {
-    renderer.render(field, flowThroughIncrement, tracersEnabled, encodingFocus);
+    renderer.render(
+      field,
+      flowThroughIncrement,
+      tracersEnabled,
+      encodingFocus,
+      forcePresent,
+    );
     return;
   }
   if (rasterRenderer !== undefined) {
@@ -209,6 +215,7 @@ function render(flowThroughIncrement: number): void {
       flowThroughIncrement,
       tracersEnabled,
       encodingFocus,
+      forcePresent,
     );
     if (frame === undefined) return;
     emit(
