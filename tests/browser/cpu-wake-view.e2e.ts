@@ -59,6 +59,7 @@ test("production CPU Worker renders, resizes, rejects stale events, and disposes
   await expect(motionEncoding).toHaveAttribute("aria-pressed", "true");
   await encodingKey.getByRole("button", { name: /rotation.*signed normalized vorticity/i }).click();
   await expect.poll(() => auditedCommands).toContain("set-encoding-focus");
+  await page.locator("summary", { hasText: "Advanced controls" }).click();
   await expect(page.getByText(/CPU balanced · cpu-reference/)).toBeVisible({
     timeout: 20_000,
   });
@@ -98,17 +99,14 @@ test("production CPU Worker renders, resizes, rejects stale events, and disposes
   await expect.poll(() => encodingKey.evaluate((element) => ({
     position: getComputedStyle(element).position,
     narrow: matchMedia("(max-width: 620px)").matches,
-  }))).toEqual({ position: "absolute", narrow: true });
+  }))).toEqual({ position: "static", narrow: true });
   const [narrowWakeBounds, narrowKeyBounds] = await Promise.all([
     wake.boundingBox(),
     encodingKey.boundingBox(),
   ]);
   expect(narrowWakeBounds).not.toBeNull();
   expect(narrowKeyBounds).not.toBeNull();
-  expect(narrowKeyBounds!.y).toBeGreaterThan(
-    narrowWakeBounds!.y + narrowWakeBounds!.height * 0.55,
-  );
-  expect(narrowKeyBounds!.y + narrowKeyBounds!.height).toBeLessThanOrEqual(
+  expect(narrowKeyBounds!.y).toBeGreaterThanOrEqual(
     narrowWakeBounds!.y + narrowWakeBounds!.height,
   );
   await page.setViewportSize({ width: 980, height: 760 });

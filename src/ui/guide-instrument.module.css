@@ -6,7 +6,7 @@
 .annotations path { fill: none; stroke: #d6dfeb; stroke-width: 1; stroke-dasharray: 3 4; }
 .annotations circle { fill: #111923; stroke: #d6dfeb; stroke-width: 1; }
 .annotations text { fill: #f7fafc; font: 12px system-ui, sans-serif; }
-.signal { box-sizing: border-box; max-width: 660px; margin: 10px auto 14px; padding: 12px; border-left: 2px solid #93b9d6; background: #0e131b; border-radius: 0 8px 8px 0; }
+.signal { box-sizing: border-box; max-width: none; margin: 10px auto 14px; padding: 12px; border-left: 2px solid #93b9d6; background: #0e131b; border-radius: 0 8px 8px 0; }
 .explanation, .caption { color: #b9c3d2; font-size: .78rem; line-height: 1.5; margin: 0; }
 .signalHeading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; align-items: baseline; margin-top: 14px; }
 .signalHeading h3 { margin: 0; font-size: .95rem; }

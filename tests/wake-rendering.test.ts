@@ -9,9 +9,9 @@ import {
 
 describe("wake rendering", () => {
   it("uses a fixed signed scale and degrades visuals before solver fidelity", () => {
-    expect(normalisedVorticityColour(-FIXED_NORMALISED_VORTICITY_LIMIT)).toBe("#2b6cb0");
+    expect(normalisedVorticityColour(-FIXED_NORMALISED_VORTICITY_LIMIT)).toBe("#63a9df");
     expect(normalisedVorticityColour(0)).toBe("#171a1f");
-    expect(normalisedVorticityColour(FIXED_NORMALISED_VORTICITY_LIMIT)).toBe("#dd6b20");
+    expect(normalisedVorticityColour(FIXED_NORMALISED_VORTICITY_LIMIT)).toBe("#df995c");
 
     const policy = new RenderLoadPolicy(18);
     expect(policy.degrade()).toEqual({

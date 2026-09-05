@@ -21,7 +21,7 @@ const explanations = {
   prediction: { title: "Follow the separated shear layers", detail: "1–2 · Trace the upper and lower layers downstream from the cylinder. Predict how faster flow will change this steady wake.", annotations: [{ target: wakePoint(1.25, 0.6), badge: [150, 95], number: 1 }, { target: wakePoint(1.25, -0.6), badge: [260, 230], number: 2 }] },
   adapting: { title: "From shear layers to roll-up", detail: "1–2 · Separated shear layers. 3 · Look downstream for the first vortex roll-up as the existing wake adapts.", annotations: [{ target: wakePoint(1.25, 0.6), badge: [90, 95], number: 1 }, { target: wakePoint(1.25, -0.6), badge: [260, 230], number: 2 }, { target: wakePoint(3.25, 0), badge: [235, 95], number: 3 }] },
   observing: { title: "Watch for alternating shedding", detail: "1 · Watch downstream for alternating clockwise and counter-clockwise vortices; compare their passage with the lift trace below.", annotations: [{ target: wakePoint(5.5, 0), badge: [240, 95], number: 1 }] },
-  complete: { title: "Connect the wake to its signal", detail: "1 · Alternating shedding accompanies periodic lift. The measured stable cycles support the regime and Strouhal readouts below.", annotations: [{ target: wakePoint(5.5, 0), badge: [240, 95], number: 1 }] },
+  complete: { title: "Connect the wake to its signal", detail: "1 · Alternating shedding accompanies periodic lift. The measured stable cycles support the regime and Strouhal readouts above.", annotations: [{ target: wakePoint(5.5, 0), badge: [240, 95], number: 1 }] },
 } as const;
 
 export function GuideAnnotations({ stage }: { readonly stage: GuideStage }) {

@@ -1443,7 +1443,7 @@ fn render_vorticity(@builtin(global_invocation_id) invocation: vec3<u32>) {
   }
   var amount = pow(abs(normalised) / 2.0, 0.72);
   if (encoding_focus() == 1u) { amount *= 0.28; }
-  let target_colour = select(vec3<f32>(221.0, 107.0, 32.0), vec3<f32>(43.0, 108.0, 176.0), normalised < 0.0);
+  let target_colour = select(vec3<f32>(223.0, 153.0, 92.0), vec3<f32>(99.0, 169.0, 223.0), normalised < 0.0);
   var colour = mix(vec3<f32>(23.0, 26.0, 31.0), target_colour, amount);
   if (tracers_enabled()) {
     let point = vec2<f32>(f32(x) + 0.5, f32(y) + 0.5);

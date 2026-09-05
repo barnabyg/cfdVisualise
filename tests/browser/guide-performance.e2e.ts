@@ -6,7 +6,7 @@ test("the real CPU guide completes across the browser matrix", async ({ page }, 
     localStorage.setItem("cfd-visualise-quality-tier", "cpu-balanced-d18");
   });
   await page.goto("/");
-  await expect(page.getByText(/CPU balanced · cpu-reference/)).toBeVisible({
+  await expect(page.locator("summary", { hasText: /Advanced controls.*CPU balanced/ })).toBeVisible({
     timeout: 20_000,
   });
 
@@ -24,6 +24,10 @@ test("the real CPU guide completes across the browser matrix", async ({ page }, 
   await checkMobileKey();
   await expect(page.getByText(/baseline measured/i)).toBeVisible({ timeout: 30_000 });
   await expect(page.locator("[data-guide-stage=prediction]")).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("prediction-mobile.png"), fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.screenshot({ path: testInfo.outputPath("prediction-desktop.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("radio", { name: /become unsteady/i }).check();
   await page.getByRole("button", { name: /commit prediction/i }).click();
   await expect(page.locator("[data-guide-stage=adapting]")).toBeVisible();
@@ -34,6 +38,10 @@ test("the real CPU guide completes across the browser matrix", async ({ page }, 
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   const cursor = signal.getByText(/Wake cursor/);
   await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeDisabled();
+  await page.screenshot({ path: testInfo.outputPath("observing-mobile.png"), fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.screenshot({ path: testInfo.outputPath("observing-desktop.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
   const paused = await cursor.textContent();
   await page.waitForTimeout(500);
   await expect(cursor).toHaveText(paused!);

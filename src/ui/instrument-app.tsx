@@ -100,43 +100,61 @@ export function InstrumentApp({ workerFactory, reducedMotion }: InstrumentAppPro
         <p class={styles.scope}>2D open-flow model | Re 5–150 | qualitative</p>
       </header>
 
-      {guideStage === "welcome" && (
-        <section class={styles.guide} aria-labelledby="welcome-title">
-          <h2 id="welcome-title">Follow one cause through the flow</h2>
-          <p>Predict how a faster stream changes the measured wake, then watch the evidence develop.</p>
-          <div class={styles.actions}>
-            <button type="button" onClick={startGuide}>Start guided experiment</button>
-            <button
-              type="button"
-              class={styles.secondary}
-              onClick={() => {
-                setGuideStage("sandbox");
-                localStorage.setItem("cfd-visualise-guide-complete", "1");
-              }}
-            >
-              Skip to sandbox
-            </button>
-          </div>
-        </section>
-      )}
-
       <div class={styles.instrument}>
         <section class={styles.wakePanel} aria-labelledby="wake-title">
           <div class={styles.panelHeading}>
             <div>
-              <p class={styles.eyebrow}>Full-domain view</p>
               <h2 id="wake-title">Wake view</h2>
             </div>
+            <PlaybackControls engine={engine} />
           </div>
-          <div class={`${styles.wakeStage} ${!["welcome", "sandbox"].includes(guideStage) ? styles.guidedWakeStage : ""}`}>
+          <section aria-label="Learning readouts">
+            <dl class={styles.readouts}>
+              <Readout label="Reynolds number" value={engine.summary.reynoldsNumber.toFixed(1)} />
+              <Readout label="Flow-through time" value={`${engine.summary.flowThroughTime.toFixed(2)} D/U`} />
+              <Readout label="Measured flow regime" value={regimeLabel(engine.summary.regime)} />
+              <Readout label="Playback state" value={engine.summary.playback} />
+              {engine.summary.regime === "periodically-shedding" &&
+                engine.summary.strouhalNumber !== undefined && (
+                  <Readout label="Strouhal number" value={engine.summary.strouhalNumber.toFixed(3)} />
+                )}
+            </dl>
+          </section>
+
+          {engine.unavailableReason !== undefined && (
+            <section class={styles.failure} role="alert">
+              <h2>Result unavailable</h2>
+              <p>{engine.unavailableReason}</p>
+              <p>The last valid frame is frozen. No physical conclusion should be drawn from this result.</p>
+              <div class={styles.actions}>
+                {engine.restartChoices?.includes("same-tier") && (
+                  <button type="button" onClick={engine.restartTier}>
+                    Restart {engine.tier?.label ?? "current tier"}
+                  </button>
+                )}
+                {engine.restartChoices?.includes("lower-tier") &&
+                  engine.tier?.id !== "cpu-balanced-d18" && (
+                    <button
+                      type="button"
+                      class={styles.secondary}
+                      onClick={() => engine.changeTier("cpu-balanced-d18")}
+                    >
+                      Restart on CPU balanced
+                    </button>
+                  )}
+              </div>
+            </section>
+          )}
+
+          <div class={styles.wakeStage}>
             <div class={styles.annotatedCanvas}>
-            <canvas
-              ref={engine.canvasRef}
-              class={styles.canvas}
-              role="img"
-              aria-label="Full-domain wake view with a cylinder, x over D and y over D axes, signed normalized vorticity, and passive tracers"
-            />
-            <GuideAnnotations stage={guideStage} />
+              <canvas
+                ref={engine.canvasRef}
+                class={styles.canvas}
+                role="img"
+                aria-label="Full-domain wake view with a cylinder, x over D and y over D axes, signed normalized vorticity, and passive tracers"
+              />
+              <GuideAnnotations stage={guideStage} />
             </div>
             <WakeEncodingKey
               focus={engine.encodingFocus}
@@ -145,10 +163,40 @@ export function InstrumentApp({ workerFactory, reducedMotion }: InstrumentAppPro
             />
           </div>
           <GuideSignal stage={guideStage} summary={engine.summary} unavailable={engine.unavailableReason !== undefined} />
-          <PlaybackControls engine={engine} />
+          {guideStage === "welcome" && (
+            <section class={styles.guide} aria-labelledby="welcome-title">
+              <h2 id="welcome-title">Follow one cause through the flow</h2>
+              <p>Predict how a faster stream changes the measured wake, then watch the evidence develop.</p>
+              <div class={styles.actions}>
+                <button type="button" onClick={startGuide}>Start guided experiment</button>
+                <button
+                  type="button"
+                  class={styles.secondary}
+                  onClick={() => {
+                    setGuideStage("sandbox");
+                    localStorage.setItem("cfd-visualise-guide-complete", "1");
+                  }}
+                >
+                  Skip to sandbox
+                </button>
+              </div>
+            </section>
+          )}
+
+          <GuideProgress
+            stage={guideStage}
+            {...(baseline === undefined ? {} : { baseline })}
+            prediction={prediction}
+            live={engine.summary}
+            onPrediction={setPrediction}
+            onCommit={commitPrediction}
+            onRunAgain={startGuide}
+          />
+
         </section>
 
-        <aside class={styles.controls} aria-label="Physical controls and learning readouts">
+        <aside class={styles.controls} aria-label="Physical controls">
+          <h2>Flow controls</h2>
           <PhysicalControl
             id="speed"
             label="Flow speed"
@@ -174,37 +222,30 @@ export function InstrumentApp({ workerFactory, reducedMotion }: InstrumentAppPro
             onChange={(value) => setScenarioValue("kinematicViscositySquareMetersPerSecond", value)}
           />
 
-          <section class={styles.readouts} aria-label="Learning readouts" aria-live="polite">
-            <Readout label="Reynolds number" value={engine.summary.reynoldsNumber.toFixed(1)} />
-            <Readout label="Flow-through time" value={`${engine.summary.flowThroughTime.toFixed(2)} D/U`} />
-            <Readout label="Measured flow regime" value={regimeLabel(engine.summary.regime)} />
-            <Readout label="Playback state" value={engine.summary.playback} />
-            {engine.summary.regime === "periodically-shedding" &&
-              engine.summary.strouhalNumber !== undefined && (
-                <Readout label="Strouhal number" value={engine.summary.strouhalNumber.toFixed(3)} />
-              )}
-          </section>
-
           <p class={styles.equation}>
             Re = U D / ν = {engine.summary.scenario.flowSpeedMetersPerSecond} × {engine.summary.scenario.cylinderDiameterMeters} / {engine.summary.scenario.kinematicViscositySquareMetersPerSecond} = {engine.summary.targetReynoldsNumber.toFixed(1)}. Higher Re means inertia has more influence relative to viscosity; equivalent scenarios share this ratio.
           </p>
-          <p class={styles.tier}>
-            {engine.tier?.label ?? "Starting CPU tier"} · {engine.tier?.backendId ?? "cpu-reference"} · validated build {engine.tier?.buildId ?? "ticket-06"}
-          </p>
-          <label class={styles.tier}>
-            Quality tier (changing tier restarts this experiment)
-            <select
-              aria-label="Quality tier"
-              value={engine.tier?.id ?? ""}
-              disabled={engine.tier === undefined}
-              onChange={(event) => engine.changeTier(event.currentTarget.value)}
-            >
-              {engine.tier === undefined && <option value="">Selecting validated tier…</option>}
-              {engine.availableTiers.map((identity) => (
-                <option key={identity.id} value={identity.id}>{identity.label}</option>
-              ))}
-            </select>
-          </label>
+          <details class={styles.advanced}>
+            <summary>Advanced controls <span>{engine.tier?.label ?? "Selecting tier"} · {engine.summary.targetPlaybackRate}× · tracers {engine.summary.tracersEnabled ? "on" : "off"}</span></summary>
+            <p class={styles.tier}>
+              {engine.tier?.label ?? "Starting CPU tier"} · {engine.tier?.backendId ?? "cpu-reference"} · validated build {engine.tier?.buildId ?? "ticket-06"}
+            </p>
+            <label class={styles.tier}>
+              Quality tier (changing tier restarts this experiment)
+              <select
+                aria-label="Quality tier"
+                value={engine.tier?.id ?? ""}
+                disabled={engine.tier === undefined}
+                onChange={(event) => engine.changeTier(event.currentTarget.value)}
+              >
+                {engine.tier === undefined && <option value="">Selecting validated tier…</option>}
+                {engine.availableTiers.map((identity) => (
+                  <option key={identity.id} value={identity.id}>{identity.label}</option>
+                ))}
+              </select>
+            </label>
+            <DisplayControls engine={engine} />
+          </details>
         </aside>
       </div>
 
@@ -212,40 +253,6 @@ export function InstrumentApp({ workerFactory, reducedMotion }: InstrumentAppPro
         <TierEvidencePanel active={engine.tier} />
       )}
 
-      <GuideProgress
-        stage={guideStage}
-        {...(baseline === undefined ? {} : { baseline })}
-        prediction={prediction}
-        live={engine.summary}
-        onPrediction={setPrediction}
-        onCommit={commitPrediction}
-        onRunAgain={startGuide}
-      />
-
-      {engine.unavailableReason !== undefined && (
-        <section class={styles.failure} role="alert">
-          <h2>Result unavailable</h2>
-          <p>{engine.unavailableReason}</p>
-          <p>The last valid frame is frozen. No physical conclusion should be drawn from this result.</p>
-          <div class={styles.actions}>
-            {engine.restartChoices?.includes("same-tier") && (
-              <button type="button" onClick={engine.restartTier}>
-                Restart {engine.tier?.label ?? "current tier"}
-              </button>
-            )}
-            {engine.restartChoices?.includes("lower-tier") &&
-              engine.tier?.id !== "cpu-balanced-d18" && (
-                <button
-                  type="button"
-                  class={styles.secondary}
-                  onClick={() => engine.changeTier("cpu-balanced-d18")}
-                >
-                  Restart on CPU balanced
-                </button>
-              )}
-          </div>
-        </section>
-      )}
     </main>
   );
 }
@@ -305,7 +312,7 @@ function WakeEncodingKey({
         <span class={styles.encodingCopy}>
           <strong>Rotation</strong>
           <span>Signed normalized vorticity · ωD/U</span>
-          <small>↻ clockwise · neutral / zero · ↺ counter-clockwise</small>
+          <small>−2 ↻ clockwise · 0 neutral / zero · +2 ↺ counter-clockwise</small>
         </span>
       </button>
       <p class={styles.encodingStatus} aria-live="polite">
@@ -348,6 +355,12 @@ function PlaybackControls({ engine }: { readonly engine: ReturnType<typeof useWa
       >
         Restart experiment
       </button>
+    </div>
+  );
+}
+
+function DisplayControls({ engine }: { readonly engine: ReturnType<typeof useWakeEngine> }) {
+  return <div class={styles.displayControls}>
       <label>
         Playback rate
         <select
@@ -369,8 +382,7 @@ function PlaybackControls({ engine }: { readonly engine: ReturnType<typeof useWa
         Passive tracers
       </label>
       <output>Achieved {engine.summary.achievedPlaybackRate.toFixed(2)}×</output>
-    </div>
-  );
+  </div>;
 }
 
 function PhysicalControl(props: {

@@ -351,7 +351,7 @@ test("supported WebGPU displays evidence for the exact selected engine identity"
   await page.goto("/");
   const engineWorker = await workerCreated;
   expect(engineWorker.url()).toContain("webgpu-wake-worker");
-  await expect(page.getByText(/WebGPU balanced · webgpu-reference/)).toBeVisible({
+  await expect(page.locator("summary", { hasText: /Advanced controls.*WebGPU balanced/ })).toBeVisible({
     timeout: 30_000,
   });
   const validationDisclosure = page.locator("details").filter({
@@ -405,7 +405,7 @@ test("production WebGPU device loss freezes the result and offers validated reco
   });
 
   await page.goto("/");
-  await expect(page.getByText(/WebGPU balanced .* webgpu-reference/)).toBeVisible({
+  await expect(page.locator("summary", { hasText: /Advanced controls.*WebGPU balanced/ })).toBeVisible({
     timeout: 30_000,
   });
   const unavailable = page.getByRole("alert");
@@ -416,6 +416,15 @@ test("production WebGPU device loss freezes the result and offers validated reco
   await expect(
     page.getByRole("button", { name: "Restart on CPU balanced" }),
   ).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.screenshot({ path: testInfo.outputPath("failure-desktop.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(unavailable).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: testInfo.outputPath("failure-mobile.png"), fullPage: true });
+  await page.getByRole("button", { name: "Restart on CPU balanced" }).click();
+  await expect(unavailable).toHaveCount(0);
+  await expect(page.locator("summary", { hasText: /Advanced controls.*CPU balanced/ })).toBeVisible({ timeout: 20_000 });
 });
 
 test("the local capability benchmark rejects a WebGPU tier below its bundled pace", async ({
@@ -429,7 +438,7 @@ test("the local capability benchmark rejects a WebGPU tier below its bundled pac
     .poll(
       async () => {
         const text = await page.locator("body").innerText();
-        return /CPU balanced .* cpu-reference/.test(text) || text.includes("Result unavailable");
+        return /Advanced controls.*CPU balanced/s.test(text) || text.includes("Result unavailable");
       },
       { timeout: 60_000 },
     )

@@ -3,9 +3,9 @@ import type { CanvasViewport, WakeEncodingFocus } from "./protocol.js";
 
 export const FIXED_NORMALISED_VORTICITY_LIMIT = 2;
 
-const NEGATIVE = [43, 108, 176] as const;
+const NEGATIVE = [99, 169, 223] as const;
 const NEUTRAL = [23, 26, 31] as const;
-const POSITIVE = [221, 107, 32] as const;
+const POSITIVE = [223, 153, 92] as const;
 const NEGATIVE_TRACER_HALO = [99, 179, 237] as const;
 const NEUTRAL_TRACER_HALO = [203, 213, 224] as const;
 const POSITIVE_TRACER_HALO = [246, 173, 85] as const;
