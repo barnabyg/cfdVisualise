@@ -1,0 +1,23 @@
+.annotations { position: absolute; inset: 0; pointer-events: none; }
+.heading { position: absolute; top: 7%; left: 8%; right: 4%; display: grid; gap: 4px; padding: 6px 8px; width: fit-content; border-radius: 5px; background: rgba(14,19,27,.9); color: #edf2f7; }
+.heading span { color: #b9c3d2; font-size: .7rem; letter-spacing: .04em; }
+.heading strong { font-size: clamp(.85rem, 1.3vw, 1.1rem); }
+.annotations svg { width: 100%; height: 100%; overflow: visible; }
+.annotations path { fill: none; stroke: #d6dfeb; stroke-width: 1; stroke-dasharray: 3 4; }
+.annotations circle { fill: #111923; stroke: #d6dfeb; stroke-width: 1; }
+.annotations text { fill: #f7fafc; font: 12px system-ui, sans-serif; }
+.signal { box-sizing: border-box; max-width: 660px; margin: 10px auto 14px; padding: 12px; border-left: 2px solid #93b9d6; background: #0e131b; border-radius: 0 8px 8px 0; }
+.explanation, .caption { color: #b9c3d2; font-size: .78rem; line-height: 1.5; margin: 0; }
+.signalHeading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; align-items: baseline; margin-top: 14px; }
+.signalHeading h3 { margin: 0; font-size: .95rem; }
+.signalHeading span { color: #b5dfce; font-size: .75rem; }
+.sample { margin: 8px 0 0; font-size: .8rem; font-variant-numeric: tabular-nums; }
+.chart { display: block; width: 100%; min-height: 130px; }
+.chart text { fill: #c9d5e4; font: 11px system-ui, sans-serif; }
+.axis { fill: none; stroke: #536276; stroke-width: 1; }
+.trace { fill: none; stroke: #b5dfce; stroke-width: 2; stroke-linejoin: round; }
+.cursor path { fill: none; stroke: #f7fafc; stroke-dasharray: 3 3; }
+.cursor circle { fill: #f7fafc; stroke: #0e131b; stroke-width: 1.5; }
+.conclusion { margin: 10px 0 0; padding-top: 10px; border-top: 1px solid #354657; color: #d8efe6; font-size: .82rem; line-height: 1.5; }
+@media (max-width: 620px) { .heading { top: 6%; } .heading span { font-size: .6rem; } .chart { width: 100%; } .chart text { font-size: 22px; } .annotations text { font-size: 16px; } }
+@media (forced-colors: active) { .trace, .cursor path, .annotations path, .annotations circle { stroke: CanvasText; } .chart text, .annotations text, .cursor circle { fill: CanvasText; } .annotations circle { fill: Canvas; } }

@@ -331,6 +331,22 @@ test("supported WebGPU displays evidence for the exact selected engine identity"
   await page.addInitScript(() => {
     localStorage.setItem("cfd-visualise-quality-tier", "webgpu-balanced-d18");
   });
+  await page.addInitScript(() => {
+    const NativeWorker = globalThis.Worker;
+    const audit = globalThis as typeof globalThis & { __liftFrames?: unknown[] };
+    audit.__liftFrames = [];
+    globalThis.Worker = class extends NativeWorker {
+      public constructor(url: string | URL, options?: WorkerOptions) {
+        super(url, options);
+        this.addEventListener("message", ({ data }) => {
+          if (data.type === "frame") {
+            audit.__liftFrames!.push(data.liftSignal);
+            audit.__liftFrames = audit.__liftFrames!.slice(-4);
+          }
+        });
+      }
+    };
+  });
   const workerCreated = page.waitForEvent("worker");
   await page.goto("/");
   const engineWorker = await workerCreated;
@@ -355,6 +371,19 @@ test("supported WebGPU displays evidence for the exact selected engine identity"
     .getByText("Flow-through time")
     .locator("..").locator("dd");
   await expect(flowTime).not.toHaveText("0.00 D/U", { timeout: 20_000 });
+  const latestSignal = () => page.evaluate(() => {
+    const audit = globalThis as typeof globalThis & {
+      __liftFrames?: { flowThroughTime: number; samples: { flowThroughTime: number; liftCoefficient: number }[] }[];
+    };
+    return audit.__liftFrames?.at(-1);
+  });
+  await expect.poll(async () => (await latestSignal())?.samples.length).toBe(1);
+  const steppedSignal = await latestSignal();
+  expect(steppedSignal?.flowThroughTime).toBeCloseTo(0.05);
+  expect(steppedSignal?.samples[0]?.flowThroughTime).toBe(steppedSignal?.flowThroughTime);
+  expect(Number.isFinite(steppedSignal?.samples[0]?.liftCoefficient)).toBe(true);
+  await page.getByRole("button", { name: "Restart experiment", exact: true }).click();
+  await expect.poll(latestSignal).toEqual({ flowThroughTime: 0, samples: [] });
 });
 
 test("production WebGPU device loss freezes the result and offers validated recovery", async ({

@@ -155,6 +155,9 @@ export function useWakeEngine(options: UseWakeEngineOptions = {}): WakeEngineFac
         setCapturedStill({ image: data.image, summary: data.summary });
       } else if (data.type === "frame") {
         framePresenterRef.current?.present(data);
+        if (data.liftSignal !== undefined) {
+          setSummary((previous) => ({ ...previous, liftSignal: data.liftSignal! }));
+        }
       } else {
         setUnavailableReason(data.reason);
         setRestartChoices(data.restartChoices);
@@ -244,6 +247,10 @@ export function useWakeEngine(options: UseWakeEngineOptions = {}): WakeEngineFac
     restartTier: () => {
       setUnavailableReason(undefined);
       setRestartChoices(undefined);
+      setSummary((previous) => {
+        const { liftSignal: _signal, ...rest } = previous;
+        return rest;
+      });
       setEngineGeneration((generation) => generation + 1);
     },
     changeTier: (tierId) => {

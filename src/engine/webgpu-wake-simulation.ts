@@ -1,3 +1,5 @@
+import { LiftDisplayHistory } from "./lift-display-history.js";
+import type { LiftDisplaySample } from "./protocol.js";
 import { analyseLiftSignal, reconcileDomainMass } from "../validation/metrics.js";
 import type { WebGpuDeviceHandle } from "../validation/webgpu-api.js";
 import {
@@ -24,6 +26,7 @@ const ADAPTING_FLOW_THROUGH_TIME = 4;
 const ADAPTATION_WAKE_PERTURBATION = 0.002;
 
 export interface WebGpuWakeSimulationSummary {
+  readonly liftHistory: readonly LiftDisplaySample[];
   readonly availability: "available" | "unavailable";
   readonly unavailableReason?: string;
   readonly scenario: PhysicalScenario;
@@ -54,6 +57,7 @@ export class WebGpuWakeSimulation {
       }
     | undefined;
   private samples: ValidationSample[] = [];
+  private readonly liftHistory = new LiftDisplayHistory();
   private phaseStartFlowThroughTime = 0;
   private strouhalNumber: number | undefined;
 
@@ -97,6 +101,7 @@ export class WebGpuWakeSimulation {
     this.stepCount = targetStep;
     this.sampledStep = this.stepCount;
     this.samples.push(sample);
+    this.liftHistory.append(sample);
     this.measureRegime(sample);
     return this.summary();
   }
@@ -123,6 +128,7 @@ export class WebGpuWakeSimulation {
 
   public async restart(): Promise<WebGpuWakeSimulationSummary> {
     await this.execution.execute({ type: "dispose" });
+    this.liftHistory.clear();
     this.stepCount = 0;
     this.sampledStep = 0;
     this.requestedStepTotal = 0;
@@ -156,6 +162,7 @@ export class WebGpuWakeSimulation {
 
   public summary(): WebGpuWakeSimulationSummary {
     return {
+      liftHistory: this.liftHistory.snapshot(),
       availability: this.availability,
       ...(this.unavailableReason === undefined ? {} : { unavailableReason: this.unavailableReason }),
       scenario: this.scenario,

@@ -5,6 +5,7 @@ import {
   type EngineCommand,
   type EngineEvent,
   type EngineSummary,
+  type LiftDisplaySignal,
   type WakeEncodingFocus,
 } from "./protocol.js";
 import { WakeRasterRenderer, WakeRenderer } from "./wake-renderer.js";
@@ -22,6 +23,7 @@ const PLAYBACK_ADVANCE_FLOW_THROUGH_TIME = 0.4;
 
 let sessionId: string | undefined;
 let sequence = 0;
+let presentedLiftSignal: LiftDisplaySignal | undefined;
 let simulation: CpuWakeSimulation | undefined;
 let renderer: WakeRenderer | undefined;
 let rasterRenderer: WakeRasterRenderer | undefined;
@@ -32,7 +34,6 @@ let tracersEnabled = true;
 let encodingFocus: WakeEncodingFocus = "combined";
 let timer: ReturnType<typeof setTimeout> | undefined;
 let lastAdvanceAt = performance.now();
-let lastSummaryAt = 0;
 let lastAdvanceDuration = 0;
 
 type EngineEventPayload =
@@ -44,7 +45,7 @@ type EngineEventPayload =
     >
   | Pick<
       Extract<EngineEvent, { readonly type: "frame" }>,
-      "type" | "width" | "height" | "pixels"
+      "type" | "width" | "height" | "pixels" | "liftSignal"
     >
   | Pick<
       Extract<EngineEvent, { readonly type: "unavailable" }>,
@@ -62,7 +63,8 @@ scope.onmessage = ({ data }) => {
     switch (data.type) {
       case "resize":
         renderer?.resize(data.viewport);
-        render(0);
+        render(0, true);
+        emitSummary(true);
         break;
       case "play":
         playback = "playing";
@@ -71,6 +73,7 @@ scope.onmessage = ({ data }) => {
         break;
       case "pause":
         pause();
+        render(0, true);
         emitSummary(true);
         break;
       case "step":
@@ -80,7 +83,7 @@ scope.onmessage = ({ data }) => {
       case "restart":
         simulation.restart();
         renderer?.clearTracers();
-        render(0);
+        render(0, true);
         emitSummary(true);
         break;
       case "capture-still":
@@ -88,7 +91,7 @@ scope.onmessage = ({ data }) => {
         break;
       case "set-scenario":
         simulation.setScenario(data.scenario);
-        render(0);
+        render(0, true);
         emitSummary(true);
         break;
       case "set-playback-rate":
@@ -107,12 +110,13 @@ scope.onmessage = ({ data }) => {
           renderer?.clearTracers();
           rasterRenderer?.clearTracers();
         }
-        render(0);
+        render(0, true);
         emitSummary(true);
         break;
       case "set-encoding-focus":
         encodingFocus = data.focus;
         render(0, true);
+        emitSummary(true);
         break;
       case "dispose":
         pause();
@@ -192,21 +196,24 @@ function advance(amount: number): void {
     emitUnavailable(summary.unavailableReason ?? "Numerical health checks failed.");
     return;
   }
-  render(amount);
-  emitSummary(playback === "paused" || now - lastSummaryAt >= 100);
+  render(amount, playback === "paused");
+  emitSummary(true);
 }
 
 function render(flowThroughIncrement: number, forcePresent = false): void {
   if (simulation === undefined) return;
   const field = simulation.flowField();
+  const summary = simulation.summary();
+  const liftSignal = { flowThroughTime: summary.flowThroughTime, samples: summary.liftHistory };
   if (renderer !== undefined) {
-    renderer.render(
+    const presented = renderer.render(
       field,
       flowThroughIncrement,
       tracersEnabled,
       encodingFocus,
       forcePresent,
     );
+    if (presented) presentedLiftSignal = liftSignal;
     return;
   }
   if (rasterRenderer !== undefined) {
@@ -218,8 +225,9 @@ function render(flowThroughIncrement: number, forcePresent = false): void {
       forcePresent,
     );
     if (frame === undefined) return;
+    presentedLiftSignal = liftSignal;
     emit(
-      { type: "frame", ...frame },
+      { type: "frame", ...frame, liftSignal },
       [frame.pixels.buffer as ArrayBuffer],
     );
   }
@@ -233,7 +241,6 @@ function pause(): void {
 
 function emitSummary(force: boolean): void {
   if (!force || simulation === undefined) return;
-  lastSummaryAt = performance.now();
   emit({ type: "summary", summary: currentEngineSummary() });
 }
 
@@ -264,6 +271,7 @@ function currentEngineSummary(): EngineSummary {
   }
   const summary = simulation.summary();
   return {
+    ...(presentedLiftSignal === undefined ? {} : { liftSignal: presentedLiftSignal }),
     scenario: summary.scenario,
     reynoldsNumber: summary.reynoldsNumber,
     targetReynoldsNumber: summary.targetReynoldsNumber,

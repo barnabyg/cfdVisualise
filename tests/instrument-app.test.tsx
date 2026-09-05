@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/preact";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/preact";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ENGINE_PROTOCOL_VERSION, type EngineCommand, type EngineEvent, type EngineSummary } from "../src/engine/protocol.js";
@@ -201,7 +201,19 @@ describe("instrument app", () => {
       }),
     );
     expect(await screen.findByText(/prediction compared/i)).toBeTruthy();
-    expect(screen.getByText("0.160")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Learning readouts" })).getByText("0.160")).toBeTruthy();
+    expect(screen.getByText(/One measured cycle/)).toBeTruthy();
+    worker.emit({
+      protocolVersion: ENGINE_PROTOCOL_VERSION,
+      sessionId: worker.commands[0]!.sessionId,
+      sequence: 5,
+      type: "unavailable",
+      reason: "Device lost after completion.",
+      restartChoices: ["same-tier"],
+    });
+    expect(screen.queryByText(/One measured cycle/)).toBeNull();
+    expect(screen.queryByText(/The measured stable cycles support/)).toBeNull();
+    expect(screen.getByText(/last valid wake and signal are frozen/i)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /run guide again/i }));
     expect(worker.commands.at(-3)).toMatchObject({
