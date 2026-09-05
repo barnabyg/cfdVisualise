@@ -9,6 +9,7 @@ import {
   type EngineCommand,
   type EngineEvent,
   type EngineSummary,
+  type LiftDisplaySignal,
   type WakeEncodingFocus,
 } from "./protocol.js";
 import { WebGpuWakeSimulation } from "./webgpu-wake-simulation.js";
@@ -26,6 +27,7 @@ const PLAYBACK_ADVANCES_PER_FRAME = 2;
 
 let sessionId: string | undefined;
 let sequence = 0;
+let presentedLiftSignal: LiftDisplaySignal | undefined;
 let simulation: WebGpuWakeSimulation | undefined;
 let device: WebGpuDeviceHandle | undefined;
 let renderCanvas: OffscreenCanvas | undefined;
@@ -48,7 +50,7 @@ type EngineEventPayload =
   | Pick<Extract<EngineEvent, { readonly type: "ready" }>, "type" | "tier">
   | Pick<Extract<EngineEvent, { readonly type: "summary" }>, "type" | "summary">
   | Pick<Extract<EngineEvent, { readonly type: "still" }>, "type" | "image" | "summary">
-  | Pick<Extract<EngineEvent, { readonly type: "frame" }>, "type" | "width" | "height" | "pixels">
+  | Pick<Extract<EngineEvent, { readonly type: "frame" }>, "type" | "width" | "height" | "pixels" | "liftSignal">
   | Pick<Extract<EngineEvent, { readonly type: "unavailable" }>, "type" | "reason" | "restartChoices">;
 
 scope.onmessage = ({ data }) => {
@@ -71,6 +73,7 @@ async function handleCommand(data: EngineCommand): Promise<void> {
     case "resize":
       resizeRenderCanvas(data.viewport);
       await presentPendingFrame();
+      emitSummary();
       break;
     case "play":
       playback = "playing";
@@ -117,6 +120,7 @@ async function handleCommand(data: EngineCommand): Promise<void> {
     case "set-encoding-focus":
       encodingFocus = data.focus;
       await presentPendingFrame();
+      emitSummary();
       break;
     case "dispose":
       pause();
@@ -249,6 +253,8 @@ async function renderFrame(_flowThroughIncrement: number): Promise<void> {
   image.data.set(frame.pixels);
   fieldContext.putImageData(image, 0, 0);
   drawDomainCoordinates(fieldContext, frame.width, frame.height);
+  const summary = simulation.summary();
+  presentedLiftSignal = { flowThroughTime: summary.flowThroughTime, samples: summary.liftHistory };
   if (renderCanvas !== undefined && renderContext !== undefined) {
     renderContext.imageSmoothingEnabled = true;
     renderContext.drawImage(fieldCanvas, 0, 0, renderCanvas.width, renderCanvas.height);
@@ -258,7 +264,7 @@ async function renderFrame(_flowThroughIncrement: number): Promise<void> {
     fieldContext.getImageData(0, 0, frame.width, frame.height).data,
   );
   emit(
-    { type: "frame", width: frame.width, height: frame.height, pixels: presentedPixels },
+    { type: "frame", width: frame.width, height: frame.height, pixels: presentedPixels, liftSignal: presentedLiftSignal },
     [presentedPixels.buffer as ArrayBuffer],
   );
 }
@@ -315,6 +321,7 @@ function currentEngineSummary(): EngineSummary {
   if (simulation === undefined) throw new Error("The WebGPU wake simulation is not initialised.");
   const summary = simulation.summary();
   return {
+    ...(presentedLiftSignal === undefined ? {} : { liftSignal: presentedLiftSignal }),
     scenario: summary.scenario,
     reynoldsNumber: summary.reynoldsNumber,
     targetReynoldsNumber: summary.targetReynoldsNumber,

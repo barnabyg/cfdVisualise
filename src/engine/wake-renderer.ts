@@ -172,17 +172,18 @@ export class WakeRenderer {
     tracersEnabled: boolean,
     encodingFocus: WakeEncodingFocus = "combined",
     forcePresent = false,
-  ): void {
+  ): boolean {
     this.advanceCount += 1;
     const load = this.loadPolicy.state();
     this.advanceTracers(field, flowThroughIncrement, load.tracerDensity, tracersEnabled);
-    if (!forcePresent && this.advanceCount % load.renderEveryNthAdvance !== 0) return;
+    if (!forcePresent && this.advanceCount % load.renderEveryNthAdvance !== 0) return false;
 
     const started = performance.now();
     this.drawField(field, encodingFocus);
     if (tracersEnabled) this.drawTracers(field, encodingFocus);
     this.drawDomainContext(field);
     if (performance.now() - started > 24) this.loadPolicy.degrade();
+    return true;
   }
 
   public clearTracers(): void {

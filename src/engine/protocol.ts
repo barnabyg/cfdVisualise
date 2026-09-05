@@ -82,7 +82,19 @@ interface EventEnvelope {
   readonly sequence: number;
 }
 
+export interface LiftDisplaySample {
+  readonly flowThroughTime: number;
+  readonly liftCoefficient: number;
+}
+
+export interface LiftDisplaySignal {
+  readonly flowThroughTime: number;
+  readonly samples: readonly LiftDisplaySample[];
+}
+
 export interface EngineSummary {
+  /** Optional v1 extension: bounded history at the last presented wake frame. */
+  readonly liftSignal?: LiftDisplaySignal;
   readonly scenario: PhysicalScenario;
   readonly reynoldsNumber: number;
   readonly targetReynoldsNumber: number;
@@ -115,6 +127,7 @@ export type EngineEvent =
       readonly width: number;
       readonly height: number;
       readonly pixels: Uint8ClampedArray;
+      readonly liftSignal?: LiftDisplaySignal;
     })
   | (EventEnvelope & {
       readonly type: "unavailable";

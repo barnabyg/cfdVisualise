@@ -13,14 +13,7 @@ import styles from "./instrument-app.module.css";
 import { TierEvidencePanel } from "./tier-evidence-panel.js";
 import { useWakeEngine, type WakeWorkerPort } from "./use-wake-engine.js";
 
-type GuideStage =
-  | "welcome"
-  | "baseline"
-  | "prediction"
-  | "adapting"
-  | "observing"
-  | "complete"
-  | "sandbox";
+import { GuideAnnotations, GuideSignal, type GuideStage } from "./guide-instrument.js";
 
 export interface InstrumentAppProps {
   readonly workerFactory?: () => WakeWorkerPort;
@@ -135,19 +128,23 @@ export function InstrumentApp({ workerFactory, reducedMotion }: InstrumentAppPro
               <h2 id="wake-title">Wake view</h2>
             </div>
           </div>
-          <div class={styles.wakeStage}>
+          <div class={`${styles.wakeStage} ${!["welcome", "sandbox"].includes(guideStage) ? styles.guidedWakeStage : ""}`}>
+            <div class={styles.annotatedCanvas}>
             <canvas
               ref={engine.canvasRef}
               class={styles.canvas}
               role="img"
               aria-label="Full-domain wake view with a cylinder, x over D and y over D axes, signed normalized vorticity, and passive tracers"
             />
+            <GuideAnnotations stage={guideStage} />
+            </div>
             <WakeEncodingKey
               focus={engine.encodingFocus}
               tracersEnabled={engine.summary.tracersEnabled}
               onFocus={engine.setEncodingFocus}
             />
           </div>
+          <GuideSignal stage={guideStage} summary={engine.summary} unavailable={engine.unavailableReason !== undefined} />
           <PlaybackControls engine={engine} />
         </section>
 

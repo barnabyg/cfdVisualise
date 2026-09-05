@@ -81,3 +81,6 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   .encodingStatus { margin-top: 1px; }
 }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
+
+.annotatedCanvas { position: relative; }
+@media (max-width: 620px) { .guidedWakeStage .encodingKey { position: relative; left: auto; bottom: auto; width: 100%; box-sizing: border-box; margin-top: 8px; } }

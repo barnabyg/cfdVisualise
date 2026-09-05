@@ -1,3 +1,5 @@
+import { LiftDisplayHistory } from "./lift-display-history.js";
+import type { LiftDisplaySample } from "./protocol.js";
 import { analyseLiftSignal, reconcileDomainMass } from "../validation/metrics.js";
 import {
   D2Q9TrtOpenCylinder,
@@ -35,6 +37,7 @@ export interface CpuWakeConfiguration {
 }
 
 export interface CpuWakeSimulationSummary {
+  readonly liftHistory: readonly LiftDisplaySample[];
   readonly availability: "available" | "unavailable";
   readonly unavailableReason?: string;
   readonly scenario: PhysicalScenario;
@@ -64,6 +67,7 @@ export class CpuWakeSimulation {
       }
     | undefined;
   private samples: ValidationSample[] = [];
+  private readonly liftHistory = new LiftDisplayHistory();
   private phaseStartFlowThroughTime = 0;
   private strouhalNumber: number | undefined;
 
@@ -109,6 +113,7 @@ export class CpuWakeSimulation {
       forceY / (this.stepCount - firstStep),
     );
     this.samples.push(sample);
+    this.liftHistory.append(sample);
     this.measureRegime(sample);
     return this.summary();
   }
@@ -135,6 +140,7 @@ export class CpuWakeSimulation {
   }
 
   public restart(): CpuWakeSimulationSummary {
+    this.liftHistory.clear();
     this.stepCount = 0;
     this.requestedStepTotal = 0;
     this.currentReynoldsNumber = reynoldsNumber(this.scenario);
@@ -151,6 +157,7 @@ export class CpuWakeSimulation {
 
   public summary(): CpuWakeSimulationSummary {
     return {
+      liftHistory: this.liftHistory.snapshot(),
       availability: this.availability,
       ...(this.unavailableReason === undefined
         ? {}
